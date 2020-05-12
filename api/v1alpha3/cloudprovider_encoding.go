@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -29,6 +30,8 @@ import (
 )
 
 const gcfgTag = "gcfg"
+
+var iniEscapeChars = regexp.MustCompile(`([\\"])`)
 
 // MarshalINI marshals the cloud provider configuration to INI-style
 // configuration data.
@@ -119,7 +122,13 @@ func (c *CPIConfig) marshalINISectionProperties(
 
 		fmt.Fprintf(out, "%s", propertyName)
 		if propertyValue.IsValid() {
-			fmt.Fprintf(out, " = %v\n", propertyValue.Interface())
+			rawVal := fmt.Sprintf("%v", propertyValue.Interface())
+			val := iniEscapeChars.ReplaceAllString(rawVal, "\\$1")
+			val = strings.ReplaceAll(val, "\t", "\\t")
+			if propertyValue.Kind() == reflect.String {
+				val = "\"" + val + "\""
+			}
+			fmt.Fprintf(out, " = %s\n", val)
 		}
 	}
 
@@ -249,19 +258,16 @@ func isEmpty(val reflect.Value) bool {
 
 // MarshalCloudProviderArgs marshals the cloud provider arguments for passing
 // into a pod spec
-func (c *CPIConfig) MarshalCloudProviderArgs() []string {
-	c.ProviderConfig.Cloud.ExtraArgs = map[string]string{}
-	args := c.ProviderConfig.Cloud.ExtraArgs
-	args["--v"] = "2"
-	args["--cloud-provider"] = "vsphere"
-	args["--cloud-config"] = "/etc/cloud/vsphere.conf"
-	marshalledArgs := make([]string, len(args))
-
-	idx := 0
-	for k, v := range args {
-		marshalledArgs[idx] = fmt.Sprintf("%s=%s", k, v)
-		idx++
+func (cpic *CPICloudConfig) MarshalCloudProviderArgs() []string {
+	args := []string{
+		"--v=2",
+		"--cloud-provider=vsphere",
+		"--cloud-config=/etc/cloud/vsphere.conf",
 	}
-
-	return marshalledArgs
+	if cpic.ExtraArgs != nil {
+		for k, v := range cpic.ExtraArgs {
+			args = append(args, fmt.Sprintf("--%s=%s", k, v))
+		}
+	}
+	return args
 }
