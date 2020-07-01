@@ -307,6 +307,11 @@ func (r vmReconciler) reconcileNormal(ctx *context.VMContext) (reconcile.Result,
 	// TODO(akutz) Implement selection of VM service based on vSphere version
 	var vmService services.VirtualMachineService = &govmomi.VMService{}
 
+	if r.isWaitingForStaticIPAllocation(ctx) {
+		r.Logger.Info("vm is waiting for static ip to be available", "namespace", ctx.VSphereVM.Namespace, "name", ctx.VSphereVM.Name)
+		return reconcile.Result{}, nil
+	}
+
 	// Get or create the VM.
 	vm, err := vmService.ReconcileVM(ctx)
 	if err != nil {
@@ -347,6 +352,28 @@ func (r vmReconciler) reconcileNormal(ctx *context.VMContext) (reconcile.Result,
 	ctx.Logger.Info("VSphereVM is ready")
 
 	return reconcile.Result{}, nil
+}
+
+func (r vmReconciler) isWaitingForStaticIPAllocation(ctx *context.VMContext) bool {
+	// Requeue if the two DHCP flags are set to false
+	// and no static IP is set in the IPAddrs.
+	waitForIP := false
+	devices := ctx.VSphereVM.Spec.Network.Devices
+
+	for _, dev := range devices {
+		// If DHCP is set for any of the devices,
+		// assume DHCP as the default allocation type.
+		if dev.DHCP4 || dev.DHCP6 {
+			return false
+		} else {
+			if len(dev.Gateway4) <= 0 || len(dev.IPAddrs) <= 0 {
+				// Static IP is not available yet
+				waitForIP = true
+			}
+		}
+	}
+
+	return waitForIP
 }
 
 func (r vmReconciler) reconcileNetwork(ctx *context.VMContext, vm infrav1.VirtualMachine) {
