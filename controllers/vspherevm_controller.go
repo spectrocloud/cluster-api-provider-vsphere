@@ -308,7 +308,7 @@ func (r vmReconciler) reconcileNormal(ctx *context.VMContext) (reconcile.Result,
 	var vmService services.VirtualMachineService = &govmomi.VMService{}
 
 	if r.isWaitingForStaticIPAllocation(ctx) {
-		r.Logger.Info("vm is waiting for static ip to be available", "namespace", ctx.VSphereVM.Namespace, "name", ctx.VSphereVM.Name)
+		ctx.Logger.Info("vm is waiting for static ip to be available")
 		return reconcile.Result{}, nil
 	}
 
@@ -366,7 +366,7 @@ func (r vmReconciler) isWaitingForStaticIPAllocation(ctx *context.VMContext) boo
 		if dev.DHCP4 || dev.DHCP6 {
 			return false
 		} else {
-			if len(dev.Gateway4) <= 0 || len(dev.IPAddrs) <= 0 {
+			if (!dev.DHCP4 && len(dev.Gateway4) <= 0) || (!dev.DHCP6 && len(dev.Gateway6) <= 0) || len(dev.IPAddrs) <= 0 {
 				// Static IP is not available yet
 				waitForIP = true
 			}
