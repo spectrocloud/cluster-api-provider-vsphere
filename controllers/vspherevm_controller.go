@@ -366,7 +366,7 @@ func (r vmReconciler) isWaitingForStaticIPAllocation(ctx *context.VMContext) boo
 		if dev.DHCP4 || dev.DHCP6 {
 			return false
 		} else {
-			if (!dev.DHCP4 && len(dev.Gateway4) <= 0) || (!dev.DHCP6 && len(dev.Gateway6) <= 0) || len(dev.IPAddrs) <= 0 {
+			if len(dev.IPAddrs) == 0 {
 				// Static IP is not available yet
 				waitForIP = true
 			}
