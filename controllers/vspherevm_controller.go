@@ -345,7 +345,14 @@ func (r vmReconciler) reconcileNormal(ctx *context.VMContext) (reconcile.Result,
 	}
 
 	// Update the VSphereVM's network status.
-	r.reconcileNetwork(ctx, vm)
+	if ok, err := r.reconcileNetwork(ctx, vm); !ok {
+		if err != nil {
+			return reconcile.Result{}, errors.Wrapf(err,
+				"unexpected error while reconciling network for %s", ctx)
+		}
+		ctx.Logger.Info("network is not reconciled")
+		return reconcile.Result{RequeueAfter: 30 * time.Second}, nil
+	}
 
 	// Once the network is online the VM is considered ready.
 	ctx.VSphereVM.Status.Ready = true
@@ -376,13 +383,20 @@ func (r vmReconciler) isWaitingForStaticIPAllocation(ctx *context.VMContext) boo
 	return waitForIP
 }
 
-func (r vmReconciler) reconcileNetwork(ctx *context.VMContext, vm infrav1.VirtualMachine) {
+func (r vmReconciler) reconcileNetwork(ctx *context.VMContext, vm infrav1.VirtualMachine) (bool, error) {
 	ctx.VSphereVM.Status.Network = vm.Network
 	ipAddrs := make([]string, 0, len(vm.Network))
 	for _, netStatus := range ctx.VSphereVM.Status.Network {
 		ipAddrs = append(ipAddrs, netStatus.IPAddrs...)
 	}
+
+	if len(ipAddrs) == 0 {
+		ctx.Logger.Info("waiting on IP addresses")
+		return false, nil
+	}
+
 	ctx.VSphereVM.Status.Addresses = ipAddrs
+	return true, nil
 }
 
 func (r *vmReconciler) clusterToVSphereVMs(a handler.MapObject) []reconcile.Request {
