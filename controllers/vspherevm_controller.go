@@ -362,21 +362,13 @@ func (r vmReconciler) reconcileNormal(ctx *context.VMContext) (reconcile.Result,
 }
 
 func (r vmReconciler) isWaitingForStaticIPAllocation(ctx *context.VMContext) bool {
-	// Requeue if the two DHCP flags are set to false
-	// and no static IP is set in the IPAddrs.
 	waitForIP := false
 	devices := ctx.VSphereVM.Spec.Network.Devices
 
 	for _, dev := range devices {
-		// If DHCP is set for any of the devices,
-		// assume DHCP as the default allocation type.
-		if dev.DHCP4 || dev.DHCP6 {
-			return false
-		} else {
-			if len(dev.IPAddrs) == 0 {
-				// Static IP is not available yet
-				waitForIP = true
-			}
+		if !dev.DHCP4 && !dev.DHCP6 && len(dev.IPAddrs) == 0 {
+			// Static IP is not available yet
+			waitForIP = true
 		}
 	}
 
