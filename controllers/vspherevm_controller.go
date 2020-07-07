@@ -315,6 +315,11 @@ func (r vmReconciler) reconcileNormal(ctx *context.VMContext) (reconcile.Result,
 	// TODO(akutz) Implement selection of VM service based on vSphere version
 	var vmService services.VirtualMachineService = &govmomi.VMService{}
 
+	if r.isWaitingForStaticIPAllocation(ctx) {
+		ctx.Logger.Info("vm is waiting for static ip to be available")
+		return reconcile.Result{}, nil
+	}
+
 	// Get or create the VM.
 	vm, err := vmService.ReconcileVM(ctx)
 	if err != nil {
@@ -341,7 +346,14 @@ func (r vmReconciler) reconcileNormal(ctx *context.VMContext) (reconcile.Result,
 	}
 
 	// Update the VSphereVM's network status.
-	r.reconcileNetwork(ctx, vm)
+	if ok, err := r.reconcileNetwork(ctx, vm); !ok {
+		if err != nil {
+			return reconcile.Result{}, errors.Wrapf(err,
+				"unexpected error while reconciling network for %s", ctx)
+		}
+		ctx.Logger.Info("network is not reconciled")
+		return reconcile.Result{RequeueAfter: 30 * time.Second}, nil
+	}
 
 	// Once the network is online the VM is considered ready.
 	ctx.VSphereVM.Status.Ready = true
@@ -351,13 +363,34 @@ func (r vmReconciler) reconcileNormal(ctx *context.VMContext) (reconcile.Result,
 	return reconcile.Result{}, nil
 }
 
-func (r vmReconciler) reconcileNetwork(ctx *context.VMContext, vm infrav1.VirtualMachine) {
+func (r vmReconciler) isWaitingForStaticIPAllocation(ctx *context.VMContext) bool {
+	waitForIP := false
+	devices := ctx.VSphereVM.Spec.Network.Devices
+
+	for _, dev := range devices {
+		if !dev.DHCP4 && !dev.DHCP6 && len(dev.IPAddrs) == 0 {
+			// Static IP is not available yet
+			waitForIP = true
+		}
+	}
+
+	return waitForIP
+}
+
+func (r vmReconciler) reconcileNetwork(ctx *context.VMContext, vm infrav1.VirtualMachine) (bool, error) {
 	ctx.VSphereVM.Status.Network = vm.Network
 	ipAddrs := make([]string, 0, len(vm.Network))
 	for _, netStatus := range ctx.VSphereVM.Status.Network {
 		ipAddrs = append(ipAddrs, netStatus.IPAddrs...)
 	}
+
+	if len(ipAddrs) == 0 {
+		ctx.Logger.Info("waiting on IP addresses")
+		return false, nil
+	}
+
 	ctx.VSphereVM.Status.Addresses = ipAddrs
+	return true, nil
 }
 
 func (r *vmReconciler) clusterToVSphereVMs(a handler.MapObject) []reconcile.Request {
