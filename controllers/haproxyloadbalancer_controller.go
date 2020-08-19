@@ -420,7 +420,8 @@ func (r haproxylbReconciler) reconcileLoadBalancerConfiguration(ctx *context.HAP
 	// for re-entrancy, allowing other dataplane users to do configuration changes.
 	if err := r.closeAllTransactions(ctx, client); err != nil {
 		// only log error when closing existing transactions
-		ctx.Logger.Error(err, "error closing transactions")
+		//ctx.Logger.Error(err, "error closing transactions")
+		ctx.Logger.V(0).Info(fmt.Sprintf("error closing transactions: %v", err))
 	}
 
 	transaction, _, err := client.TransactionsApi.StartTransaction(ctx, global.Version)
@@ -432,7 +433,8 @@ func (r haproxylbReconciler) reconcileLoadBalancerConfiguration(ctx *context.HAP
 
 	defer func() {
 		if _, _, err := client.TransactionsApi.CommitTransaction(ctx, transaction.Id, nil); err != nil {
-			ctx.Logger.Error(err, "Failed to commit HAProxy dataplane transaction")
+			//ctx.Logger.Error(err, "Failed to commit HAProxy dataplane transaction")
+			ctx.Logger.V(0).Info(fmt.Sprintf("Failed to commit HAProxy dataplane transaction: %v", err))
 		}
 	}()
 
