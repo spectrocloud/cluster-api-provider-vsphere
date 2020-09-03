@@ -64,6 +64,10 @@ type VSphereClusterStatus struct {
 	// Conditions defines current service state of the VSphereCluster.
 	// +optional
 	Conditions clusterv1.Conditions `json:"conditions,omitempty"`
+
+	// FailureDomains is a slice of failure domain objects
+	// +optional
+	FailureDomains clusterv1.FailureDomains `json:"failureDomains,omitempty"`
 }
 
 // +kubebuilder:object:root=true
