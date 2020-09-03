@@ -49,6 +49,7 @@ import (
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 	infrav1 "sigs.k8s.io/cluster-api-provider-vsphere/api/v1alpha3"
 	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/context"
+	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/failuredomain"
 	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/record"
 	infrautilv1 "sigs.k8s.io/cluster-api-provider-vsphere/pkg/util"
 )
@@ -459,6 +460,12 @@ func (r machineReconciler) reconcileNormalPre7(ctx *context.MachineContext, vsph
 		if vsphereVM != nil {
 			vm.Spec.BiosUUID = vsphereVM.Spec.BiosUUID
 		}
+
+		// if failure domain specified
+		if ctx.Machine.Spec.FailureDomain != nil {
+			failuredomain.UpdateVSphereVMFromFailureDomain(ctx.VSphereCluster, vm, *ctx.Machine.Spec.FailureDomain)
+		}
+
 		return nil
 	}
 	if _, err := ctrlutil.CreateOrUpdate(ctx, ctx.Client, vm, mutateFn); err != nil {

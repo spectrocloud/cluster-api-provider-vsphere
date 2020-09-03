@@ -46,6 +46,7 @@ import (
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-vsphere/api/v1alpha3"
 	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/context"
+	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/failuredomain"
 	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/record"
 	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/services/cloudprovider"
 	infrautilv1 "sigs.k8s.io/cluster-api-provider-vsphere/pkg/util"
@@ -272,6 +273,8 @@ func (r clusterReconciler) reconcileNormal(ctx *context.ClusterContext) (reconci
 	// Reconcile the VSphereCluster resource's ready state.
 	conditions.MarkTrue(ctx.VSphereCluster, infrav1.LoadBalancerAvailableCondition)
 	ctx.VSphereCluster.Status.Ready = true
+
+	failuredomain.ReconcileFailureDomain(ctx.Logger, ctx.VSphereCluster)
 
 	// Reconcile the VSphereCluster resource's control plane endpoint.
 	if ok, err := r.reconcileControlPlaneEndpoint(ctx); !ok {
