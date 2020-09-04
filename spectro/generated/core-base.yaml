@@ -238,8 +238,8 @@ metadata:
   namespace: capv-system
 stringData:
   credentials.yaml: |-
-    username: ${VSPHERE_USERNAME}
-    password: ${VSPHERE_PASSWORD}
+    username: "${VSPHERE_USERNAME}"
+    password: "${VSPHERE_PASSWORD}"
 type: Opaque
 ---
 apiVersion: v1

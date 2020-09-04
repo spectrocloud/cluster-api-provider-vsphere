@@ -6,7 +6,6 @@ package failuredomain
 
 import (
 	"encoding/json"
-	"strings"
 
 	"github.com/go-logr/logr"
 	infrav1 "sigs.k8s.io/cluster-api-provider-vsphere/api/v1alpha3"
@@ -43,9 +42,11 @@ type ControlPlaneFailureDomain struct {
 	ResourcePool string `json:"resourcePool,omitempty"`
 }
 
-func (c *ControlPlaneFailureDomain) GetFailureDomain() (string, clusterv1.FailureDomainSpec) {
-	computeCluster := getComputeClusterFromResourcePool(c.ResourcePool)
-	return computeCluster, clusterv1.FailureDomainSpec{
+// map key is compute cluster
+type ControlPlaneFailureDomains map[string]ControlPlaneFailureDomain
+
+func (c *ControlPlaneFailureDomain) GetFailureDomain() clusterv1.FailureDomainSpec {
+	return clusterv1.FailureDomainSpec{
 		ControlPlane: true,
 		Attributes: map[string]string{
 			FailureDomainKeyDatacenter:   c.Datacenter,
@@ -54,12 +55,6 @@ func (c *ControlPlaneFailureDomain) GetFailureDomain() (string, clusterv1.Failur
 			FailureDomainKeyResourcePool: c.ResourcePool,
 		},
 	}
-}
-
-func getComputeClusterFromResourcePool(resourcePool string) string {
-	// examples vSAN Cluster/Resources,
-	arr := strings.Split(resourcePool, "/")
-	return arr[0]
 }
 
 func (c *ControlPlaneFailureDomain) SetFailureDomain(fd clusterv1.FailureDomainSpec) {
@@ -74,20 +69,18 @@ func (c *ControlPlaneFailureDomain) SetFailureDomain(fd clusterv1.FailureDomainS
 
 func ReconcileFailureDomain(log logr.Logger, vsphereCluster *infrav1.VSphereCluster) {
 	if val, ok := vsphereCluster.Annotations[FailureDomainAnnotationKey]; ok {
-		failureDomains := []ControlPlaneFailureDomain{}
+		failureDomains := ControlPlaneFailureDomains{}
 		if err := json.Unmarshal([]byte(val), &failureDomains); err != nil {
 			log.Error(err, "faild to parse failure domain", "annotation", val)
 			return
 		}
 
-		if vsphereCluster.Status.FailureDomains == nil {
-			vsphereCluster.Status.FailureDomains = make(clusterv1.FailureDomains)
+		fds := make(clusterv1.FailureDomains)
+		for key, fd := range failureDomains {
+			spec := fd.GetFailureDomain()
+			fds[key] = spec
 		}
-
-		for _, fd := range failureDomains {
-			id, spec := fd.GetFailureDomain()
-			vsphereCluster.Status.FailureDomains[id] = spec
-		}
+		vsphereCluster.Status.FailureDomains = fds
 	}
 
 	return
