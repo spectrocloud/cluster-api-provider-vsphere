@@ -3,7 +3,7 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     cert-manager.io/inject-ca-from: capi-webhook-system/capv-serving-cert
-    controller-gen.kubebuilder.io/version: v0.2.6
+    controller-gen.kubebuilder.io/version: v0.2.9
   creationTimestamp: null
   labels:
     cluster.x-k8s.io/provider: infrastructure-vsphere
@@ -261,6 +261,7 @@ spec:
                   template:
                     description: Template is the name or inventory path of the template
                       used to clone the virtual machine.
+                    minLength: 1
                     type: string
                 required:
                 - network
@@ -302,7 +303,7 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     cert-manager.io/inject-ca-from: capi-webhook-system/capv-serving-cert
-    controller-gen.kubebuilder.io/version: v0.2.6
+    controller-gen.kubebuilder.io/version: v0.2.9
   creationTimestamp: null
   labels:
     cluster.x-k8s.io/provider: infrastructure-vsphere
@@ -844,10 +845,71 @@ spec:
           status:
             description: VSphereClusterStatus defines the observed state of VSphereClusterSpec
             properties:
+              conditions:
+                description: Conditions defines current service state of the VSphereCluster.
+                items:
+                  description: Condition defines an observation of a Cluster API resource
+                    operational state.
+                  properties:
+                    lastTransitionTime:
+                      description: Last time the condition transitioned from one status
+                        to another. This should be when the underlying condition changed.
+                        If that is not known, then using the time when the API field
+                        changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: A human readable message indicating details about
+                        the transition. This field may be empty.
+                      type: string
+                    reason:
+                      description: The reason for the condition's last transition
+                        in CamelCase. The specific API may choose whether or not this
+                        field is considered a guaranteed API. This field may not be
+                        empty.
+                      type: string
+                    severity:
+                      description: Severity provides an explicit classification of
+                        Reason code, so the users or machines can immediately understand
+                        the current situation and act accordingly. The Severity field
+                        MUST be set only when Status=False.
+                      type: string
+                    status:
+                      description: Status of the condition, one of True, False, Unknown.
+                      type: string
+                    type:
+                      description: Type of condition in CamelCase or in foo.example.com/CamelCase.
+                        Many .condition.type values are consistent across resources
+                        like Available, but because arbitrary conditions can be useful
+                        (see .node.status.conditions), the ability to deconflict is
+                        important.
+                      type: string
+                  required:
+                  - status
+                  - type
+                  type: object
+                type: array
+              failureDomains:
+                additionalProperties:
+                  description: FailureDomainSpec is the Schema for Cluster API failure
+                    domains. It allows controllers to understand how many failure
+                    domains a cluster can optionally span across.
+                  properties:
+                    attributes:
+                      additionalProperties:
+                        type: string
+                      description: Attributes is a free form map of attributes an
+                        infrastructure provider might use or require.
+                      type: object
+                    controlPlane:
+                      description: ControlPlane determines if this failure domain
+                        is suitable for use by control plane machines.
+                      type: boolean
+                  type: object
+                description: FailureDomains is a slice of failure domain objects
+                type: object
               ready:
                 type: boolean
-            required:
-            - ready
             type: object
         type: object
     served: true
@@ -866,7 +928,7 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     cert-manager.io/inject-ca-from: capi-webhook-system/capv-serving-cert
-    controller-gen.kubebuilder.io/version: v0.2.6
+    controller-gen.kubebuilder.io/version: v0.2.9
   creationTimestamp: null
   labels:
     cluster.x-k8s.io/provider: infrastructure-vsphere
@@ -1388,6 +1450,7 @@ spec:
               template:
                 description: Template is the name or inventory path of the template
                   used to clone the virtual machine.
+                minLength: 1
                 type: string
             required:
             - network
@@ -1411,6 +1474,50 @@ spec:
                       type: string
                   required:
                   - address
+                  - type
+                  type: object
+                type: array
+              conditions:
+                description: Conditions defines current service state of the VSphereMachine.
+                items:
+                  description: Condition defines an observation of a Cluster API resource
+                    operational state.
+                  properties:
+                    lastTransitionTime:
+                      description: Last time the condition transitioned from one status
+                        to another. This should be when the underlying condition changed.
+                        If that is not known, then using the time when the API field
+                        changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: A human readable message indicating details about
+                        the transition. This field may be empty.
+                      type: string
+                    reason:
+                      description: The reason for the condition's last transition
+                        in CamelCase. The specific API may choose whether or not this
+                        field is considered a guaranteed API. This field may not be
+                        empty.
+                      type: string
+                    severity:
+                      description: Severity provides an explicit classification of
+                        Reason code, so the users or machines can immediately understand
+                        the current situation and act accordingly. The Severity field
+                        MUST be set only when Status=False.
+                      type: string
+                    status:
+                      description: Status of the condition, one of True, False, Unknown.
+                      type: string
+                    type:
+                      description: Type of condition in CamelCase or in foo.example.com/CamelCase.
+                        Many .condition.type values are consistent across resources
+                        like Available, but because arbitrary conditions can be useful
+                        (see .node.status.conditions), the ability to deconflict is
+                        important.
+                      type: string
+                  required:
+                  - status
                   - type
                   type: object
                 type: array
@@ -1492,7 +1599,7 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     cert-manager.io/inject-ca-from: capi-webhook-system/capv-serving-cert
-    controller-gen.kubebuilder.io/version: v0.2.6
+    controller-gen.kubebuilder.io/version: v0.2.9
   creationTimestamp: null
   labels:
     cluster.x-k8s.io/provider: infrastructure-vsphere
@@ -2074,6 +2181,7 @@ spec:
                       template:
                         description: Template is the name or inventory path of the
                           template used to clone the virtual machine.
+                        minLength: 1
                         type: string
                     required:
                     - network
@@ -2100,7 +2208,7 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     cert-manager.io/inject-ca-from: capi-webhook-system/capv-serving-cert
-    controller-gen.kubebuilder.io/version: v0.2.6
+    controller-gen.kubebuilder.io/version: v0.2.9
   creationTimestamp: null
   labels:
     cluster.x-k8s.io/provider: infrastructure-vsphere
@@ -2380,6 +2488,7 @@ spec:
               template:
                 description: Template is the name or inventory path of the template
                   used to clone the virtual machine.
+                minLength: 1
                 type: string
             required:
             - network
@@ -2402,6 +2511,50 @@ spec:
                   to determine the actual type of clone operation used to create this
                   VM.
                 type: string
+              conditions:
+                description: Conditions defines current service state of the VSphereVM.
+                items:
+                  description: Condition defines an observation of a Cluster API resource
+                    operational state.
+                  properties:
+                    lastTransitionTime:
+                      description: Last time the condition transitioned from one status
+                        to another. This should be when the underlying condition changed.
+                        If that is not known, then using the time when the API field
+                        changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: A human readable message indicating details about
+                        the transition. This field may be empty.
+                      type: string
+                    reason:
+                      description: The reason for the condition's last transition
+                        in CamelCase. The specific API may choose whether or not this
+                        field is considered a guaranteed API. This field may not be
+                        empty.
+                      type: string
+                    severity:
+                      description: Severity provides an explicit classification of
+                        Reason code, so the users or machines can immediately understand
+                        the current situation and act accordingly. The Severity field
+                        MUST be set only when Status=False.
+                      type: string
+                    status:
+                      description: Status of the condition, one of True, False, Unknown.
+                      type: string
+                    type:
+                      description: Type of condition in CamelCase or in foo.example.com/CamelCase.
+                        Many .condition.type values are consistent across resources
+                        like Available, but because arbitrary conditions can be useful
+                        (see .node.status.conditions), the ability to deconflict is
+                        important.
+                      type: string
+                  required:
+                  - status
+                  - type
+                  type: object
+                type: array
               failureMessage:
                 description: "FailureMessage will be set in the event that there is
                   a terminal problem reconciling the vspherevm and will contain a
@@ -2584,3 +2737,74 @@ metadata:
   namespace: capi-webhook-system
 spec:
   selfSigned: {}
+---
+apiVersion: admissionregistration.k8s.io/v1beta1
+kind: ValidatingWebhookConfiguration
+metadata:
+  annotations:
+    cert-manager.io/inject-ca-from: capi-webhook-system/capv-serving-cert
+  creationTimestamp: null
+  labels:
+    cluster.x-k8s.io/provider: infrastructure-vsphere
+  name: capv-validating-webhook-configuration
+webhooks:
+- clientConfig:
+    caBundle: Cg==
+    service:
+      name: capv-webhook-service
+      namespace: capi-webhook-system
+      path: /validate-infrastructure-cluster-x-k8s-io-v1alpha3-vspheremachine
+  failurePolicy: Fail
+  matchPolicy: Equivalent
+  name: validation.vspheremachine.infrastructure.x-k8s.io
+  rules:
+  - apiGroups:
+    - infrastructure.cluster.x-k8s.io
+    apiVersions:
+    - v1alpha3
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - vspheremachines
+  sideEffects: None
+- clientConfig:
+    caBundle: Cg==
+    service:
+      name: capv-webhook-service
+      namespace: capi-webhook-system
+      path: /validate-infrastructure-cluster-x-k8s-io-v1alpha3-vspheremachinetemplate
+  failurePolicy: Fail
+  matchPolicy: Equivalent
+  name: validation.vspheremachinetemplate.infrastructure.x-k8s.io
+  rules:
+  - apiGroups:
+    - infrastructure.cluster.x-k8s.io
+    apiVersions:
+    - v1alpha3
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - vspheremachinetemplates
+  sideEffects: None
+- clientConfig:
+    caBundle: Cg==
+    service:
+      name: capv-webhook-service
+      namespace: capi-webhook-system
+      path: /validate-infrastructure-cluster-x-k8s-io-v1alpha3-vspherevm
+  failurePolicy: Fail
+  matchPolicy: Equivalent
+  name: validation.vspherevm.infrastructure.x-k8s.io
+  rules:
+  - apiGroups:
+    - infrastructure.cluster.x-k8s.io
+    apiVersions:
+    - v1alpha3
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - vspherevms
+  sideEffects: None
