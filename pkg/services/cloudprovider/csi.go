@@ -657,8 +657,7 @@ func ConfigForCSI(vsphereCluster v1alpha3.VSphereCluster, cluster clusterv1.Clus
 		}
 	}
 
-	config.Labels.Region = vsphereCluster.Spec.CloudProviderConfiguration.Labels.Region
-	config.Labels.Zone = vsphereCluster.Spec.CloudProviderConfiguration.Labels.Zone
+	config.Labels = vsphereCluster.Spec.CloudProviderConfiguration.Labels
 
 	return config
 }
