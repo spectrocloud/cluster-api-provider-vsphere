@@ -68,7 +68,7 @@ func (c *ControlPlaneFailureDomain) SetFailureDomain(fd clusterv1.FailureDomainS
 }
 
 func ReconcileFailureDomain(log logr.Logger, vsphereCluster *infrav1.VSphereCluster) {
-	if val, ok := vsphereCluster.Annotations[FailureDomainAnnotationKey]; ok {
+	if val, ok := vsphereCluster.Annotations[FailureDomainAnnotationKey]; ok && len(val) > 0 {
 		failureDomains := ControlPlaneFailureDomains{}
 		if err := json.Unmarshal([]byte(val), &failureDomains); err != nil {
 			log.Error(err, "faild to parse failure domain", "annotation", val)
