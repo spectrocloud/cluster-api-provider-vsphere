@@ -82,8 +82,6 @@ func ReconcileFailureDomain(log logr.Logger, vsphereCluster *infrav1.VSphereClus
 		}
 		vsphereCluster.Status.FailureDomains = fds
 	}
-
-	return
 }
 
 func UpdateVSphereVMFromFailureDomain(vsphereCluster *infrav1.VSphereCluster, vm *infrav1.VSphereVM, failureDomain string) {
