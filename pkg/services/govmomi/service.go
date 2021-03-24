@@ -19,6 +19,7 @@ package govmomi
 import (
 	"encoding/base64"
 	"fmt"
+	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/services/govmomi/bootstrap"
 
 	"github.com/pkg/errors"
 
@@ -373,10 +374,23 @@ func (vms *VMService) getNetworkStatus(ctx *virtualMachineContext) ([]infrav1.Ne
 	return apiNetStatus, nil
 }
 
-func (vms *VMService) getBootstrapData(ctx *context.VMContext) ([]byte, error) {
+
+
+func convertStringToFormat(input string) bootstrap.Format {
+	switch input {
+	case string(bootstrap.CloudConfig), "":
+		return bootstrap.CloudConfig
+	case string(bootstrap.Ignition):
+		return bootstrap.Ignition
+	}
+	return bootstrap.CloudConfig
+}
+
+func (vms *VMService) getBootstrapData(ctx *context.VMContext) (bootstrap.VMBootstrapData, error) {
+	bootstrapData := bootstrap.VMBootstrapData{}
 	if ctx.VSphereVM.Spec.BootstrapRef == nil {
 		ctx.Logger.Info("VM has no bootstrap data")
-		return nil, nil
+		return bootstrapData, nil
 	}
 
 	secret := &corev1.Secret{}
@@ -385,13 +399,17 @@ func (vms *VMService) getBootstrapData(ctx *context.VMContext) ([]byte, error) {
 		Name:      ctx.VSphereVM.Spec.BootstrapRef.Name,
 	}
 	if err := ctx.Client.Get(ctx, secretKey, secret); err != nil {
-		return nil, errors.Wrapf(err, "failed to retrieve bootstrap data secret for %s", ctx)
+		return bootstrapData, errors.Wrapf(err, "failed to retrieve bootstrap data secret for %s", ctx)
 	}
 
 	value, ok := secret.Data["value"]
 	if !ok {
-		return nil, errors.New("error retrieving bootstrap data: secret value key is missing")
+		return bootstrapData, errors.New("error retrieving bootstrap data: secret value key is missing")
 	}
 
-	return value, nil
+	format := secret.Data["format"]
+	bootstrapData.SetFormat(convertStringToFormat(string(format)))
+	bootstrapData.SetValue(value)
+
+	return bootstrapData, nil
 }

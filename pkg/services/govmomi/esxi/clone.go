@@ -18,11 +18,11 @@ package esxi
 
 import (
 	"github.com/pkg/errors"
-
 	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/context"
+	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/services/govmomi/bootstrap"
 )
 
 // Clone kicks off a clone operation on ESXi to create a new virtual machine.
-func Clone(ctx *context.VMContext, bootstrapData []byte) error {
+func Clone(ctx *context.VMContext, data bootstrap.VMBootstrapData) error {
 	return errors.New("temporarily disabled esxi support")
 }

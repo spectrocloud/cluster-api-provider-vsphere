@@ -21,6 +21,7 @@ import (
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/vim25/mo"
 	"github.com/vmware/govmomi/vim25/types"
+	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/services/govmomi/bootstrap"
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-vsphere/api/v1alpha3"
 	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/context"
@@ -35,7 +36,7 @@ const (
 
 // Clone kicks off a clone operation on vCenter to create a new virtual machine.
 // nolint:gocognit
-func Clone(ctx *context.VMContext, bootstrapData []byte) error {
+func Clone(ctx *context.VMContext, data bootstrap.VMBootstrapData) error {
 	ctx = &context.VMContext{
 		ControllerContext: ctx.ControllerContext,
 		VSphereVM:         ctx.VSphereVM,
@@ -46,9 +47,9 @@ func Clone(ctx *context.VMContext, bootstrapData []byte) error {
 	ctx.Logger.Info("starting clone process")
 
 	var extraConfig extra.Config
-	if len(bootstrapData) > 0 {
+	if len(data.GetValue()) > 0 {
 		ctx.Logger.Info("applied bootstrap data to VM clone spec")
-		if err := extraConfig.SetCloudInitUserData(bootstrapData); err != nil {
+		if err := extraConfig.SetCloudInitUserData(data); err != nil {
 			return err
 		}
 	}
