@@ -20,7 +20,9 @@ import (
 	"context"
 	"net/url"
 	"sync"
+	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	"github.com/vmware/govmomi"
 	"github.com/vmware/govmomi/find"
@@ -42,18 +44,48 @@ type Session struct {
 	datacenter *object.Datacenter
 }
 
+type GetOrCreateContext struct {
+	context context.Context
+	logger logr.Logger
+}
+
+func NewGetOrCreateContext(ctx context.Context, logger logr.Logger) GetOrCreateContext {
+	return GetOrCreateContext{
+		context: ctx,
+		logger:  logger.WithName("session"),
+	}
+}
+
+
+type Feature struct {
+	EnableKeepAlive bool
+	KeepAliveDuration time.Duration
+}
+
+func DefaultFeature() Feature {
+	return Feature{
+		EnableKeepAlive:   false,
+		KeepAliveDuration: 0,
+	}
+}
+
 // GetOrCreate gets a cached session or creates a new one if one does not
 // already exist.
 func GetOrCreate(
-	ctx context.Context,
-	server, datacenter, username, password string, thumbprint string) (*Session, error) {
+	ctx GetOrCreateContext,
+	server, datacenter, username, password string, thumbprint string, feature Feature) (*Session, error) {
 
 	sessionMU.Lock()
 	defer sessionMU.Unlock()
 
 	sessionKey := server + username + datacenter
 	if session, ok := sessionCache[sessionKey]; ok {
-		if ok, _ := session.SessionManager.SessionIsActive(ctx); ok {
+		// if keepalive is enabled we depend upon roundtripper to reestablish the connection
+		// and remove the key if it could not
+		if feature.EnableKeepAlive {
+			return &session, nil
+		}
+		if ok, _ := session.SessionManager.SessionIsActive(ctx.context); ok {
 			return &session, nil
 		}
 	}
@@ -67,7 +99,7 @@ func GetOrCreate(
 	}
 
 	soapURL.User = url.UserPassword(username, password)
-	client, err := newClient(ctx, soapURL, thumbprint)
+	client, err := newClient(ctx, sessionKey, soapURL, thumbprint, feature)
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +111,7 @@ func GetOrCreate(
 	session.Finder = find.NewFinder(session.Client.Client, false)
 
 	// Assign the datacenter if one was specified.
-	dc, err := session.Finder.DatacenterOrDefault(ctx, datacenter)
+	dc, err := session.Finder.DatacenterOrDefault(ctx.context, datacenter)
 	if err != nil {
 		return nil, errors.Wrapf(err, "unable to find datacenter %q", datacenter)
 	}
@@ -95,22 +127,38 @@ func GetOrCreate(
 	return &session, nil
 }
 
-func newClient(ctx context.Context, url *url.URL, thumprint string) (*govmomi.Client, error) {
+func newClient(ctx GetOrCreateContext, sessionKey string, url *url.URL, thumprint string, feature Feature) (*govmomi.Client, error) {
 	insecure := thumprint == ""
 	soapClient := soap.NewClient(url, insecure)
 	if !insecure {
 		soapClient.SetThumbprint(url.Host, thumprint)
 	}
 
-	vimClient, err := vim25.NewClient(ctx, soapClient)
+	vimClient, err := vim25.NewClient(ctx.context, soapClient)
 	if err != nil {
 		return nil, err
 	}
+
 	c := &govmomi.Client{
 		Client:         vimClient,
 		SessionManager: session.NewManager(vimClient),
 	}
-	if err := c.Login(ctx, url.User); err != nil {
+
+	if feature.EnableKeepAlive {
+		vimClient.RoundTripper = session.KeepAliveHandler(vimClient.RoundTripper, feature.KeepAliveDuration * time.Minute, func(tripper soap.RoundTripper) error {
+			if ok, _ := c.SessionManager.SessionIsActive(ctx.context); ok {
+				return nil
+			}
+			if err := c.Login(ctx.context, url.User); err != nil {
+				ctx.logger.V(0).Info("unable to reestablish connection, resetting cache")
+				delete(sessionCache, sessionKey)
+				return errors.Wrap(err, "unable to reestablish connection")
+			}
+			return nil
+		})
+	}
+
+	if err := c.Login(ctx.context, url.User); err != nil {
 		return nil, err
 	}
 

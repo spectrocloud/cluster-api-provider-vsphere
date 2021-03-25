@@ -24,6 +24,7 @@ import (
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/simulator"
 	"github.com/vmware/govmomi/vim25/types"
+	"k8s.io/klog/v2/klogr"
 	"sigs.k8s.io/cluster-api-provider-vsphere/api/v1alpha3"
 	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/context"
 	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/session"
@@ -142,9 +143,10 @@ func initSimulator(t *testing.T) (*simulator.Model, *session.Session, *simulator
 	pass, _ := server.URL.User.Password()
 
 	authSession, err := session.GetOrCreate(
-		ctx.TODO(),
+		session.NewGetOrCreateContext(ctx.TODO(), klogr.New()),
 		server.URL.Host, "",
-		server.URL.User.Username(), pass, "")
+		server.URL.User.Username(), pass, "",
+		session.DefaultFeature())
 	if err != nil {
 		t.Fatal(err)
 	}
