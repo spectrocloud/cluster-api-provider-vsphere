@@ -98,6 +98,14 @@ type Options struct {
 	// endpoints.
 	Password string
 
+	// EnableKeepAlive is a session feature to enable keep alive handler
+	// for better load management on vSphere api server
+	EnableKeepAlive bool
+
+	// KeepAliveDuration is the idle time interval in between send() requests
+	// in keepalive handler
+	KeepAliveDuration time.Duration
+
 	// WebhookPort is the port that the webhook server serves at.
 	WebhookPort int
 

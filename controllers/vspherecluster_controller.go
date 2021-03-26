@@ -344,7 +344,10 @@ func (r clusterReconciler) reconcileVCenterConnectivity(ctx *context.ClusterCont
 		ctx.Username,
 		ctx.Password,
 		ctx.VSphereCluster.Spec.Thumbprint,
-		session.DefaultFeature())
+		session.Feature{
+			EnableKeepAlive:   r.EnableKeepAlive,
+			KeepAliveDuration: r.KeepAliveDuration,
+		})
 	return err
 }
 

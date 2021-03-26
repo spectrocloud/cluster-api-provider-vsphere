@@ -49,6 +49,8 @@ var (
 	defaultLeaderElectionID = manager.DefaultLeaderElectionID
 	defaultPodName          = manager.DefaultPodName
 	defaultWebhookPort      = manager.DefaultWebhookServiceContainerPort
+	defaultEnableKeepAlive = manager.DefaultEnableKeepAlive
+	defaultKeepAliveDuration = manager.DefaultKeepAliveDuration
 )
 
 // nolint:gocognit
@@ -117,6 +119,15 @@ func main() {
 		"/etc/capv/credentials.yaml",
 		"path to CAPV's credentials file",
 	)
+	flag.BoolVar(&managerOpts.EnableKeepAlive,
+		"enable-keep-alive",
+		defaultEnableKeepAlive,
+		"feature to enable keep alive handler in vsphere sessions")
+
+	flag.DurationVar(&managerOpts.KeepAliveDuration,
+		"keep-alive-duration",
+		defaultKeepAliveDuration,
+		"idle time interval in between send() requests in keepalive handler")
 
 	flag.Parse()
 

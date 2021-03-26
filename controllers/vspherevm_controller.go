@@ -143,7 +143,10 @@ func (r vmReconciler) Reconcile(req ctrl.Request) (_ ctrl.Result, reterr error) 
 		r.ControllerManagerContext.Username,
 		r.ControllerManagerContext.Password,
 		vsphereVM.Spec.Thumbprint,
-		session.DefaultFeature())
+		session.Feature{
+			EnableKeepAlive:   r.EnableKeepAlive,
+			KeepAliveDuration: r.KeepAliveDuration,
+		})
 	if err != nil {
 		return reconcile.Result{}, errors.Wrap(err, "failed to create vSphere session")
 	}
