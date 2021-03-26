@@ -43,13 +43,13 @@ import (
 var (
 	setupLog = ctrllog.Log.WithName("entrypoint")
 
-	managerOpts             manager.Options
-	defaultProfilerAddr     = os.Getenv("PROFILER_ADDR")
-	defaultSyncPeriod       = manager.DefaultSyncPeriod
-	defaultLeaderElectionID = manager.DefaultLeaderElectionID
-	defaultPodName          = manager.DefaultPodName
-	defaultWebhookPort      = manager.DefaultWebhookServiceContainerPort
-	defaultEnableKeepAlive = manager.DefaultEnableKeepAlive
+	managerOpts              manager.Options
+	defaultProfilerAddr      = os.Getenv("PROFILER_ADDR")
+	defaultSyncPeriod        = manager.DefaultSyncPeriod
+	defaultLeaderElectionID  = manager.DefaultLeaderElectionID
+	defaultPodName           = manager.DefaultPodName
+	defaultWebhookPort       = manager.DefaultWebhookServiceContainerPort
+	defaultEnableKeepAlive   = manager.DefaultEnableKeepAlive
 	defaultKeepAliveDuration = manager.DefaultKeepAliveDuration
 )
 
