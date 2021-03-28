@@ -153,7 +153,7 @@ func newClient(ctx GetOrCreateContext, sessionKey string, url *url.URL, thumprin
 			// we tried with cached username and password in session still the error persisted
 			// hence we just clear the cache and expect the client to
 			// be recreated in next GetOrCreate call
-			_, err := methods.GetCurrentTime(ctx.context, vimClient.RoundTripper)
+			_, err := methods.GetCurrentTime(ctx.context, tripper)
 			if err != nil {
 				ctx.logger.Error(err, "failed to keep alive govmomi client")
 				ClearCache(sessionKey)
