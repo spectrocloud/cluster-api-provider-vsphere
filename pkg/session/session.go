@@ -29,6 +29,7 @@ import (
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/session"
 	"github.com/vmware/govmomi/vim25"
+	"github.com/vmware/govmomi/vim25/methods"
 	"github.com/vmware/govmomi/vim25/soap"
 
 	"sigs.k8s.io/cluster-api-provider-vsphere/api/v1alpha3"
@@ -146,15 +147,18 @@ func newClient(ctx GetOrCreateContext, sessionKey string, url *url.URL, thumprin
 
 	if feature.EnableKeepAlive {
 		vimClient.RoundTripper = session.KeepAliveHandler(vimClient.RoundTripper, feature.KeepAliveDuration * time.Minute, func(tripper soap.RoundTripper) error {
-			if ok, _ := c.SessionManager.SessionIsActive(ctx.context); ok {
-				return nil
+			// we tried implementing
+			// c.Login here but the client once logged out
+			// keeps errong in invalid username or password
+			// we tried with cached username and password in session still the error persisted
+			// hence we just clear the cache and expect the client to
+			// be recreated in next GetOrCreate call
+			_, err := methods.GetCurrentTime(ctx.context, vimClient.RoundTripper)
+			if err != nil {
+				ctx.logger.Error(err, "failed to keep alive govmomi client")
+				ClearCache(sessionKey)
 			}
-			if err := c.Login(ctx.context, url.User); err != nil {
-				ctx.logger.V(0).Info("unable to reestablish connection, resetting cache")
-				delete(sessionCache, sessionKey)
-				return errors.Wrap(err, "unable to reestablish connection")
-			}
-			return nil
+			return err
 		})
 	}
 
@@ -163,6 +167,12 @@ func newClient(ctx GetOrCreateContext, sessionKey string, url *url.URL, thumprin
 	}
 
 	return c, nil
+}
+
+func ClearCache(sessionKey string) {
+	sessionMU.Lock()
+	defer sessionMU.Unlock()
+	delete(sessionCache, sessionKey)
 }
 
 // FindByBIOSUUID finds an object by its BIOS UUID.
