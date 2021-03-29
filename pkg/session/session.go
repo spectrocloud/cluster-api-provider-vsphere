@@ -146,7 +146,7 @@ func newClient(ctx GetOrCreateContext, sessionKey string, url *url.URL, thumprin
 	}
 
 	if feature.EnableKeepAlive {
-		vimClient.RoundTripper = session.KeepAliveHandler(vimClient.RoundTripper, feature.KeepAliveDuration * time.Minute, func(tripper soap.RoundTripper) error {
+		vimClient.RoundTripper = session.KeepAliveHandler(vimClient.RoundTripper, feature.KeepAliveDuration, func(tripper soap.RoundTripper) error {
 			// we tried implementing
 			// c.Login here but the client once logged out
 			// keeps errong in invalid username or password
