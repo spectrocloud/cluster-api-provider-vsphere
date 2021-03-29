@@ -127,7 +127,7 @@ func main() {
 	flag.DurationVar(&managerOpts.KeepAliveDuration,
 		"keep-alive-duration",
 		defaultKeepAliveDuration,
-		"idle time interval in between send() requests in keepalive handler")
+		"idle time interval(minutes) in between send() requests in keepalive handler")
 
 	flag.Parse()
 
