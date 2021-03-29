@@ -47,7 +47,7 @@ type Session struct {
 
 type GetOrCreateContext struct {
 	context context.Context
-	logger logr.Logger
+	logger  logr.Logger
 }
 
 func NewGetOrCreateContext(ctx context.Context, logger logr.Logger) GetOrCreateContext {
@@ -57,9 +57,8 @@ func NewGetOrCreateContext(ctx context.Context, logger logr.Logger) GetOrCreateC
 	}
 }
 
-
 type Feature struct {
-	EnableKeepAlive bool
+	EnableKeepAlive   bool
 	KeepAliveDuration time.Duration
 }
 

@@ -77,7 +77,6 @@ type ControllerManagerContext struct {
 	// endpoints.
 	Password string
 
-
 	// EnableKeepAlive is a session feature to enable keep alive handler
 	// for better load management on vSphere api server
 	EnableKeepAlive bool
