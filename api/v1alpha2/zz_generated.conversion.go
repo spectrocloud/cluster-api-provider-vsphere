@@ -871,6 +871,7 @@ func autoConvert_v1alpha2_VSphereClusterStatus_To_v1alpha3_VSphereClusterStatus(
 func autoConvert_v1alpha3_VSphereClusterStatus_To_v1alpha2_VSphereClusterStatus(in *v1alpha3.VSphereClusterStatus, out *VSphereClusterStatus, s conversion.Scope) error {
 	out.Ready = in.Ready
 	// WARNING: in.Conditions requires manual conversion: does not exist in peer-type
+	// WARNING: in.FailureDomains requires manual conversion: does not exist in peer-type
 	return nil
 }
 

@@ -24,6 +24,9 @@ const (
 const (
 	guestInfoKeyMetadata    = "guestinfo.metadata"
 	guestInfoKeyMetadataEnc = "guestinfo.metadata.encoding"
+
+	ignitionKey         = "guestinfo.ignition.config.data"
+
 	guestInfoKeyUserdata    = "guestinfo.userdata"
 	guestInfoKeyUserdataEnc = "guestinfo.userdata.encoding"
 )

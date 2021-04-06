@@ -19,7 +19,7 @@ func (vbd *VMBootstrapData) GetValue() []byte {
 	return vbd.value
 }
 
-func (vbd VMBootstrapData) SetValue(value []byte) {
+func (vbd *VMBootstrapData) SetValue(value []byte) {
 	vbd.value = value
 }
 

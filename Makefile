@@ -86,9 +86,9 @@ RELEASE_REGISTRY := gcr.io/cluster-api-provider-vsphere/release
 RELEASE_CONTROLLER_IMG := $(RELEASE_REGISTRY)/$(IMAGE_NAME)
 
 # Development Docker variables
-DEV_REGISTRY ?= gcr.io/$(shell gcloud config get-value project)
+DEV_REGISTRY ?= gcr.io/spectro-images-public/dev/cluster-api-vsphere
 DEV_CONTROLLER_IMG ?= $(DEV_REGISTRY)/vsphere-$(IMAGE_NAME)
-DEV_TAG ?= dev
+DEV_TAG ?= flatcar
 DEV_MANIFEST_IMG := $(DEV_CONTROLLER_IMG)-$(ARCH)
 
 # Set build time variables including git version details

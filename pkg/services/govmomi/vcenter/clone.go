@@ -44,15 +44,18 @@ func Clone(ctx *context.VMContext, data bootstrap.VMBootstrapData) error {
 		Logger:            ctx.Logger.WithName("vcenter"),
 		PatchHelper:       ctx.PatchHelper,
 	}
-	ctx.Logger.Info("starting clone process")
+	ctx.Logger.Info("starting clone process", "data", string(data.GetValue()),
+		"format", data.GetFormat())
 
 	var extraConfig extra.Config
 	if len(data.GetValue()) > 0 {
-		ctx.Logger.Info("applied bootstrap data to VM clone spec")
+		ctx.Logger.V(0).Info("[watch] applied bootstrap data to VM clone spec")
 		if err := extraConfig.SetCloudInitUserData(data); err != nil {
 			return err
 		}
 	}
+
+	ctx.Logger.V(0).Info("[watch] got extraconfig", "extraconfig", extraConfig)
 
 	tpl, err := template.FindTemplate(ctx, ctx.VSphereVM.Spec.Template)
 	if err != nil {
