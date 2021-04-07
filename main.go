@@ -35,6 +35,7 @@ import (
 	ctrlsig "sigs.k8s.io/controller-runtime/pkg/manager/signals"
 
 	"sigs.k8s.io/cluster-api-provider-vsphere/controllers"
+	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/constants"
 	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/context"
 	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/manager"
 	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/version"
@@ -49,8 +50,8 @@ var (
 	defaultLeaderElectionID  = manager.DefaultLeaderElectionID
 	defaultPodName           = manager.DefaultPodName
 	defaultWebhookPort       = manager.DefaultWebhookServiceContainerPort
-	defaultEnableKeepAlive   = manager.DefaultEnableKeepAlive
-	defaultKeepAliveDuration = manager.DefaultKeepAliveDuration
+	defaultEnableKeepAlive   = constants.DefaultEnableKeepAlive
+	defaultKeepAliveDuration = constants.DefaultKeepAliveDuration
 )
 
 // nolint:gocognit

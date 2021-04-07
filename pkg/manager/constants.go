@@ -29,12 +29,6 @@ const (
 	// manager option.
 	DefaultSyncPeriod = time.Minute * 10
 
-	// DefaultEnableKeepAlive is false by default
-	DefaultEnableKeepAlive = false
-
-	// KeepaliveDuration unit minutes
-	DefaultKeepAliveDuration = time.Minute * 5
-
 	// DefaultPodName is the default value for the eponymous manager option.
 	DefaultPodName = defaultPrefix + "controller-manager"
 

@@ -33,6 +33,7 @@ import (
 	"github.com/vmware/govmomi/vim25/soap"
 
 	"sigs.k8s.io/cluster-api-provider-vsphere/api/v1alpha3"
+	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/constants"
 )
 
 var sessionCache = map[string]Session{}
@@ -66,8 +67,7 @@ type Feature struct {
 
 func DefaultFeature() Feature {
 	return Feature{
-		EnableKeepAlive:   false,
-		KeepAliveDuration: 0,
+		EnableKeepAlive: constants.DefaultEnableKeepAlive,
 	}
 }
 
