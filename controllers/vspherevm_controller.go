@@ -136,17 +136,18 @@ func (r vmReconciler) Reconcile(req ctrl.Request) (_ ctrl.Result, reterr error) 
 		return reconcile.Result{}, err
 	}
 
-	// Get or create an authenticated session to the vSphere endpoint.
-	authSession, err := session.GetOrCreate(session.NewGetOrCreateContext(r.Context, r.Logger),
-		vsphereVM.Spec.Server,
-		vsphereVM.Spec.Datacenter,
-		r.ControllerManagerContext.Username,
-		r.ControllerManagerContext.Password,
-		vsphereVM.Spec.Thumbprint,
-		session.Feature{
+	params := session.NewParams().
+		WithServer(vsphereVM.Spec.Server).
+		WithDatacenter(vsphereVM.Spec.Datacenter).
+		WithUserInfo(r.ControllerContext.Username, r.ControllerContext.Password).
+		WithThumbprint(vsphereVM.Spec.Thumbprint).
+		WithFeatures(session.Feature{
 			EnableKeepAlive:   r.EnableKeepAlive,
 			KeepAliveDuration: r.KeepAliveDuration,
 		})
+	// Get or create an authenticated session to the vSphere endpoint.
+	authSession, err := session.GetOrCreate(session.NewSessionContext(r.Context, r.Logger),
+		params)
 	if err != nil {
 		return reconcile.Result{}, errors.Wrap(err, "failed to create vSphere session")
 	}

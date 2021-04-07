@@ -45,13 +45,15 @@ type Session struct {
 	datacenter *object.Datacenter
 }
 
-type GetOrCreateContext struct {
+// wrapper around session context
+// TODO: sadysnaat replace with controller-manager context logger
+type Context struct {
 	context context.Context
 	logger  logr.Logger
 }
 
-func NewGetOrCreateContext(ctx context.Context, logger logr.Logger) GetOrCreateContext {
-	return GetOrCreateContext{
+func NewSessionContext(ctx context.Context, logger logr.Logger) Context {
+	return Context{
 		context: ctx,
 		logger:  logger.WithName("session"),
 	}
@@ -69,20 +71,57 @@ func DefaultFeature() Feature {
 	}
 }
 
+type Params struct {
+	server     string
+	datacenter string
+	userinfo   *url.Userinfo
+	thumbprint string
+	feature    Feature
+}
+
+func NewParams() *Params {
+	return &Params{
+		feature: DefaultFeature(),
+	}
+}
+
+func (p *Params) WithServer(server string) *Params {
+	p.server = server
+	return p
+}
+
+func (p *Params) WithDatacenter(datacenter string) *Params {
+	p.datacenter = datacenter
+	return p
+}
+
+func (p *Params) WithUserInfo(username, password string) *Params {
+	p.userinfo = url.UserPassword(username, password)
+	return p
+}
+
+func (p *Params) WithThumbprint(thumbprint string) *Params {
+	p.thumbprint = thumbprint
+	return p
+}
+
+func (p *Params) WithFeatures(feature Feature) *Params {
+	p.feature = feature
+	return p
+}
+
 // GetOrCreate gets a cached session or creates a new one if one does not
 // already exist.
-func GetOrCreate(
-	ctx GetOrCreateContext,
-	server, datacenter, username, password string, thumbprint string, feature Feature) (*Session, error) {
+func GetOrCreate(ctx Context, params *Params) (*Session, error) {
 
 	sessionMU.Lock()
 	defer sessionMU.Unlock()
 
-	sessionKey := server + username + datacenter
+	sessionKey := params.server + params.userinfo.Username() + params.datacenter
 	if session, ok := sessionCache[sessionKey]; ok {
 		// if keepalive is enabled we depend upon roundtripper to reestablish the connection
 		// and remove the key if it could not
-		if feature.EnableKeepAlive {
+		if params.feature.EnableKeepAlive {
 			return &session, nil
 		}
 		if ok, _ := session.SessionManager.SessionIsActive(ctx.context); ok {
@@ -90,16 +129,16 @@ func GetOrCreate(
 		}
 	}
 
-	soapURL, err := soap.ParseURL(server)
+	soapURL, err := soap.ParseURL(params.server)
 	if err != nil {
-		return nil, errors.Wrapf(err, "error parsing vSphere URL %q", server)
+		return nil, errors.Wrapf(err, "error parsing vSphere URL %q", params.server)
 	}
 	if soapURL == nil {
-		return nil, errors.Errorf("error parsing vSphere URL %q", server)
+		return nil, errors.Errorf("error parsing vSphere URL %q", params.server)
 	}
 
-	soapURL.User = url.UserPassword(username, password)
-	client, err := newClient(ctx, sessionKey, soapURL, thumbprint, feature)
+	soapURL.User = params.userinfo
+	client, err := newClient(ctx, sessionKey, soapURL, params.thumbprint, params.feature)
 	if err != nil {
 		return nil, err
 	}
@@ -111,9 +150,9 @@ func GetOrCreate(
 	session.Finder = find.NewFinder(session.Client.Client, false)
 
 	// Assign the datacenter if one was specified.
-	dc, err := session.Finder.DatacenterOrDefault(ctx.context, datacenter)
+	dc, err := session.Finder.DatacenterOrDefault(ctx.context, params.datacenter)
 	if err != nil {
-		return nil, errors.Wrapf(err, "unable to find datacenter %q", datacenter)
+		return nil, errors.Wrapf(err, "unable to find datacenter %q", params.datacenter)
 	}
 	session.datacenter = dc
 	session.Finder.SetDatacenter(dc)
@@ -127,7 +166,7 @@ func GetOrCreate(
 	return &session, nil
 }
 
-func newClient(ctx GetOrCreateContext, sessionKey string, url *url.URL, thumprint string, feature Feature) (*govmomi.Client, error) {
+func newClient(ctx Context, sessionKey string, url *url.URL, thumprint string, feature Feature) (*govmomi.Client, error) {
 	insecure := thumprint == ""
 	soapClient := soap.NewClient(url, insecure)
 	if !insecure {
@@ -155,7 +194,7 @@ func newClient(ctx GetOrCreateContext, sessionKey string, url *url.URL, thumprin
 			_, err := methods.GetCurrentTime(ctx.context, tripper)
 			if err != nil {
 				ctx.logger.Error(err, "failed to keep alive govmomi client")
-				ClearCache(sessionKey)
+				clearCache(sessionKey)
 			}
 			return err
 		})
@@ -168,7 +207,7 @@ func newClient(ctx GetOrCreateContext, sessionKey string, url *url.URL, thumprin
 	return c, nil
 }
 
-func ClearCache(sessionKey string) {
+func clearCache(sessionKey string) {
 	sessionMU.Lock()
 	defer sessionMU.Unlock()
 	delete(sessionCache, sessionKey)

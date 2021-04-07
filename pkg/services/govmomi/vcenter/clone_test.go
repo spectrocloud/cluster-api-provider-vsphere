@@ -142,11 +142,18 @@ func initSimulator(t *testing.T) (*simulator.Model, *session.Session, *simulator
 	server := model.Service.NewServer()
 	pass, _ := server.URL.User.Password()
 
+	//authSession, err := session.GetOrCreate(
+	//	session.NewSessionContext(ctx.TODO(), klogr.New()),
+	//	server.URL.Host, "",
+	//	server.URL.User.Username(), pass, "",
+	//	session.DefaultFeature())
 	authSession, err := session.GetOrCreate(
-		session.NewGetOrCreateContext(ctx.TODO(), klogr.New()),
-		server.URL.Host, "",
-		server.URL.User.Username(), pass, "",
-		session.DefaultFeature())
+		session.NewSessionContext(ctx.TODO(), klogr.New()),
+		session.NewParams().
+			WithServer(server.URL.Host).
+			WithDatacenter("").
+			WithUserInfo(server.URL.User.Username(), pass).
+			WithThumbprint(""))
 	if err != nil {
 		t.Fatal(err)
 	}

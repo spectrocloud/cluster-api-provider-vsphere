@@ -338,16 +338,17 @@ func cloudProviderConfigurationAvailable(ctx *context.ClusterContext) bool {
 }
 
 func (r clusterReconciler) reconcileVCenterConnectivity(ctx *context.ClusterContext) error {
-	_, err := session.GetOrCreate(session.NewGetOrCreateContext(ctx.Context, ctx.Logger),
-		ctx.VSphereCluster.Spec.Server,
-		ctx.VSphereCluster.Spec.CloudProviderConfiguration.Workspace.Datacenter,
-		ctx.Username,
-		ctx.Password,
-		ctx.VSphereCluster.Spec.Thumbprint,
-		session.Feature{
+	params := session.NewParams().
+		WithServer(ctx.VSphereCluster.Spec.Server).
+		WithDatacenter(ctx.VSphereCluster.Spec.CloudProviderConfiguration.Workspace.Datacenter).
+		WithUserInfo(ctx.Username, ctx.Password).
+		WithThumbprint(ctx.VSphereCluster.Spec.Thumbprint).
+		WithFeatures(session.Feature{
 			EnableKeepAlive:   r.EnableKeepAlive,
 			KeepAliveDuration: r.KeepAliveDuration,
 		})
+	_, err := session.GetOrCreate(session.NewSessionContext(ctx.Context, ctx.Logger),
+		params)
 	return err
 }
 
