@@ -28,7 +28,7 @@ import (
 // NOTE: the contents of this file are derived from https://github.com/kubernetes/cloud-provider-vsphere/tree/master/manifests/controller-manager
 
 const (
-	DefaultCPIControllerImage = "gcr.io/cloud-provider-vsphere/cpi/release/manager:v1.2.1"
+	DefaultCPIControllerImage = "gcr.io/cloud-provider-vsphere/cpi/release/manager:v1.18.1"
 )
 
 // CloudControllerManagerServiceAccount returns the ServiceAccount used for the cloud-controller-manager
@@ -212,6 +212,11 @@ func CloudControllerManagerClusterRole() *rbacv1.ClusterRole {
 				APIGroups: []string{""},
 				Resources: []string{"secrets"},
 				Verbs:     []string{"get", "list", "watch"},
+			},
+			{
+				APIGroups: []string{"coordination.k8s.io"},
+				Resources: []string{"leases"},
+				Verbs:     []string{"get", "watch", "list", "delete", "update", "create"},
 			},
 		},
 	}

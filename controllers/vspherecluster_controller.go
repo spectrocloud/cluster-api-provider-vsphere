@@ -30,6 +30,13 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
+	infrav1 "sigs.k8s.io/cluster-api-provider-vsphere/api/v1alpha3"
+	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/context"
+	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/failuredomain"
+	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/record"
+	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/services/cloudprovider"
+	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/session"
+	infrautilv1 "sigs.k8s.io/cluster-api-provider-vsphere/pkg/util"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha3"
 	clusterutilv1 "sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/conditions"
@@ -43,13 +50,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
-
-	infrav1 "sigs.k8s.io/cluster-api-provider-vsphere/api/v1alpha3"
-	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/context"
-	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/failuredomain"
-	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/record"
-	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/services/cloudprovider"
-	infrautilv1 "sigs.k8s.io/cluster-api-provider-vsphere/pkg/util"
 )
 
 var (
@@ -182,18 +182,6 @@ func (r clusterReconciler) Reconcile(req ctrl.Request) (_ ctrl.Result, reterr er
 	// Always issue a patch when exiting this function so changes to the
 	// resource are patched back to the API server.
 	defer func() {
-		// always update the readyCondition.
-		conditions.SetSummary(clusterContext.VSphereCluster,
-			conditions.WithConditions(
-				infrav1.LoadBalancerAvailableCondition,
-				infrav1.CCMAvailableCondition,
-				infrav1.CSIAvailableCondition,
-			),
-			conditions.WithStepCounterIfOnly(
-				infrav1.LoadBalancerAvailableCondition,
-			),
-		)
-
 		if err := clusterContext.Patch(); err != nil {
 			if reterr == nil {
 				reterr = err
@@ -214,6 +202,10 @@ func (r clusterReconciler) Reconcile(req ctrl.Request) (_ ctrl.Result, reterr er
 func (r clusterReconciler) reconcileDelete(ctx *context.ClusterContext) (reconcile.Result, error) {
 	ctx.Logger.Info("Reconciling VSphereCluster delete")
 
+	// ccm and csi needs the control plane endpoint (which is removed when the VSphereCluster is)
+	conditions.MarkFalse(ctx.VSphereCluster, infrav1.CCMAvailableCondition, clusterv1.DeletingReason, clusterv1.ConditionSeverityInfo, "")
+	conditions.MarkFalse(ctx.VSphereCluster, infrav1.CSIAvailableCondition, clusterv1.DeletingReason, clusterv1.ConditionSeverityInfo, "")
+
 	vsphereMachines, err := infrautilv1.GetVSphereMachinesInCluster(ctx, ctx.Client, ctx.VSphereCluster.Namespace, ctx.VSphereCluster.Name)
 	if err != nil {
 		return reconcile.Result{}, errors.Wrapf(err,
@@ -230,21 +222,24 @@ func (r clusterReconciler) reconcileDelete(ctx *context.ClusterContext) (reconci
 	if err != nil {
 		return reconcile.Result{}, err
 	}
-	if len(haproxyLoadbalancers.Items) > 0 {
-		for _, lb := range haproxyLoadbalancers.Items {
-			if err := r.Client.Delete(ctx, lb.DeepCopy()); err != nil && !apierrors.IsNotFound(err) {
-				return reconcile.Result{}, err
-			}
-		}
-
-		ctx.Logger.Info("Waiting for HAProxyLoadBalancer to be deleted", "count", len(haproxyLoadbalancers.Items))
-		return reconcile.Result{RequeueAfter: 10 * time.Second}, nil
-	}
 
 	if len(vsphereMachines) > 0 {
 		ctx.Logger.Info("Waiting for VSphereMachines to be deleted", "count", len(vsphereMachines))
 		return reconcile.Result{RequeueAfter: 10 * time.Second}, nil
 	}
+
+	if len(haproxyLoadbalancers.Items) > 0 {
+		conditions.MarkFalse(ctx.VSphereCluster, infrav1.LoadBalancerAvailableCondition, clusterv1.DeletingReason, clusterv1.ConditionSeverityInfo, "")
+		for _, lb := range haproxyLoadbalancers.Items {
+			if err := r.Client.Delete(ctx, lb.DeepCopy()); err != nil && !apierrors.IsNotFound(err) {
+				conditions.MarkFalse(ctx.VSphereCluster, infrav1.LoadBalancerAvailableCondition, "DeletionFailed", clusterv1.ConditionSeverityWarning, "")
+				return reconcile.Result{}, err
+			}
+		}
+		ctx.Logger.Info("Waiting for HAProxyLoadBalancer to be deleted", "count", len(haproxyLoadbalancers.Items))
+		return reconcile.Result{RequeueAfter: 10 * time.Second}, nil
+	}
+	conditions.MarkFalse(ctx.VSphereCluster, infrav1.LoadBalancerAvailableCondition, clusterv1.DeletedReason, clusterv1.ConditionSeverityInfo, "")
 
 	// Cluster is deleted so remove the finalizer.
 	ctrlutil.RemoveFinalizer(ctx.VSphereCluster, infrav1.ClusterFinalizer)
@@ -257,6 +252,15 @@ func (r clusterReconciler) reconcileNormal(ctx *context.ClusterContext) (reconci
 
 	// If the VSphereCluster doesn't have our finalizer, add it.
 	ctrlutil.AddFinalizer(ctx.VSphereCluster, infrav1.ClusterFinalizer)
+
+	if cloudProviderConfigurationAvailable(ctx) {
+		if err := r.reconcileVCenterConnectivity(ctx); err != nil {
+			conditions.MarkFalse(ctx.VSphereCluster, infrav1.VCenterAvailableCondition, infrav1.VCenterUnreachableReason, clusterv1.ConditionSeverityError, err.Error())
+			return reconcile.Result{}, errors.Wrapf(err,
+				"unexpected error while probing vcenter for %s", ctx)
+		}
+		conditions.MarkTrue(ctx.VSphereCluster, infrav1.VCenterAvailableCondition)
+	}
 
 	// Reconcile the VSphereCluster's load balancer.
 	if ok, err := r.reconcileLoadBalancer(ctx); !ok {
@@ -276,9 +280,19 @@ func (r clusterReconciler) reconcileNormal(ctx *context.ClusterContext) (reconci
 
 	failuredomain.ReconcileFailureDomain(ctx.Logger, ctx.VSphereCluster)
 
-	// Reconcile the VSphereCluster resource's control plane endpoint.
-	if ok := r.reconcileControlPlaneEndpoint(ctx); !ok {
+	// Ensure the VSphereCluster is reconciled when the API server first comes online.
+	// A reconcile event will only be triggered if the Cluster is not marked as
+	// ControlPlaneInitialized.
+	r.reconcileVSphereClusterWhenAPIServerIsOnline(ctx)
+	if ctx.VSphereCluster.Spec.ControlPlaneEndpoint.IsZero() {
 		ctx.Logger.Info("control plane endpoint is not reconciled")
+		return reconcile.Result{}, nil
+	}
+
+	// If the cluster is deleted, that's mean that the workload cluster is being deleted and so the CCM/CSI instances
+	if !ctx.Cluster.DeletionTimestamp.IsZero() {
+		conditions.MarkFalse(ctx.VSphereCluster, infrav1.CCMAvailableCondition, clusterv1.DeletingReason, clusterv1.ConditionSeverityInfo, "")
+		conditions.MarkFalse(ctx.VSphereCluster, infrav1.CSIAvailableCondition, clusterv1.DeletingReason, clusterv1.ConditionSeverityInfo, "")
 		return reconcile.Result{}, nil
 	}
 
@@ -286,36 +300,47 @@ func (r clusterReconciler) reconcileNormal(ctx *context.ClusterContext) (reconci
 	if !r.isAPIServerOnline(ctx) {
 		return reconcile.Result{}, nil
 	}
+	if cloudProviderConfigurationAvailable(ctx) {
+		// Create the cloud config secret for the target cluster.
+		if err := r.reconcileCloudConfigSecret(ctx); err != nil {
+			conditions.MarkFalse(ctx.VSphereCluster, infrav1.CCMAvailableCondition, infrav1.CCMProvisioningFailedReason, clusterv1.ConditionSeverityWarning, err.Error())
+			return reconcile.Result{}, errors.Wrapf(err,
+				"failed to reconcile cloud config secret for VSphereCluster %s/%s",
+				ctx.VSphereCluster.Namespace, ctx.VSphereCluster.Name)
+		}
 
-	// Create the cloud config secret for the target cluster.
-	if err := r.reconcileCloudConfigSecret(ctx); err != nil {
-		conditions.MarkFalse(ctx.VSphereCluster, infrav1.CCMAvailableCondition, infrav1.CCMProvisioningFailedReason, clusterv1.ConditionSeverityWarning, err.Error())
-		return reconcile.Result{}, errors.Wrapf(err,
-			"failed to reconcile cloud config secret for VSphereCluster %s/%s",
-			ctx.VSphereCluster.Namespace, ctx.VSphereCluster.Name)
-	}
+		// Create the external cloud provider addons
+		if err := r.reconcileCloudProvider(ctx); err != nil {
+			conditions.MarkFalse(ctx.VSphereCluster, infrav1.CCMAvailableCondition, infrav1.CCMProvisioningFailedReason, clusterv1.ConditionSeverityWarning, err.Error())
+			return reconcile.Result{}, errors.Wrapf(err,
+				"failed to reconcile cloud provider for VSphereCluster %s/%s",
+				ctx.VSphereCluster.Namespace, ctx.VSphereCluster.Name)
+		}
 
-	// Create the external cloud provider addons
-	if err := r.reconcileCloudProvider(ctx); err != nil {
-		conditions.MarkFalse(ctx.VSphereCluster, infrav1.CCMAvailableCondition, infrav1.CCMProvisioningFailedReason, clusterv1.ConditionSeverityWarning, err.Error())
-		return reconcile.Result{}, errors.Wrapf(err,
-			"failed to reconcile cloud provider for VSphereCluster %s/%s",
-			ctx.VSphereCluster.Namespace, ctx.VSphereCluster.Name)
-	}
+		conditions.MarkTrue(ctx.VSphereCluster, infrav1.CCMAvailableCondition)
 
-	conditions.MarkTrue(ctx.VSphereCluster, infrav1.CCMAvailableCondition)
-
-	// Create the vSphere CSI Driver addons
-	if err := r.reconcileStorageProvider(ctx); err != nil {
-		conditions.MarkFalse(ctx.VSphereCluster, infrav1.CSIAvailableCondition, infrav1.CSIProvisioningFailedReason, clusterv1.ConditionSeverityWarning, err.Error())
-		return reconcile.Result{}, errors.Wrapf(err,
-			"failed to reconcile CSI Driver for VSphereCluster %s/%s",
-			ctx.VSphereCluster.Namespace, ctx.VSphereCluster.Name)
+		// Create the vSphere CSI Driver addons
+		if err := r.reconcileStorageProvider(ctx); err != nil {
+			conditions.MarkFalse(ctx.VSphereCluster, infrav1.CSIAvailableCondition, infrav1.CSIProvisioningFailedReason, clusterv1.ConditionSeverityWarning, err.Error())
+			return reconcile.Result{}, errors.Wrapf(err,
+				"failed to reconcile CSI Driver for VSphereCluster %s/%s",
+				ctx.VSphereCluster.Namespace, ctx.VSphereCluster.Name)
+		}
 	}
 
 	conditions.MarkTrue(ctx.VSphereCluster, infrav1.CSIAvailableCondition)
 
 	return reconcile.Result{}, nil
+}
+
+func cloudProviderConfigurationAvailable(ctx *context.ClusterContext) bool {
+	return !reflect.DeepEqual(ctx.VSphereCluster.Spec.CloudProviderConfiguration, infrav1.CPIConfig{})
+}
+
+func (r clusterReconciler) reconcileVCenterConnectivity(ctx *context.ClusterContext) error {
+	_, err := session.GetOrCreate(ctx, ctx.VSphereCluster.Spec.Server,
+		ctx.VSphereCluster.Spec.CloudProviderConfiguration.Workspace.Datacenter, ctx.Username, ctx.Password, ctx.VSphereCluster.Spec.Thumbprint)
+	return err
 }
 
 func (r clusterReconciler) reconcileLoadBalancer(ctx *context.ClusterContext) (bool, error) {
@@ -458,22 +483,6 @@ func (r clusterReconciler) reconcileLoadBalancer(ctx *context.ClusterContext) (b
 		"controlPlaneEndpoint", ctx.VSphereCluster.Spec.ControlPlaneEndpoint.String())
 
 	return true, nil
-}
-
-func (r clusterReconciler) reconcileControlPlaneEndpoint(ctx *context.ClusterContext) bool {
-	// Ensure the VSphereCluster is reconciled when the API server first comes online.
-	// A reconcile event will only be triggered if the Cluster is not marked as
-	// ControlPlaneInitialized.
-	defer r.reconcileVSphereClusterWhenAPIServerIsOnline(ctx)
-
-	if !ctx.VSphereCluster.Spec.ControlPlaneEndpoint.IsZero() {
-		ctx.Logger.Info("skipping control plane endpoint reconciliation",
-			"reason", "ControlPlaneEndpoint already set on VSphereCluster",
-			"controlPlaneEndpoint", ctx.VSphereCluster.Spec.ControlPlaneEndpoint.String())
-		return true
-	}
-
-	return false
 }
 
 var (
@@ -681,6 +690,11 @@ func (r clusterReconciler) reconcileStorageProvider(ctx *context.ClusterContext)
 
 	serviceAccount := cloudprovider.CSIControllerServiceAccount()
 	if _, err := targetClusterClient.CoreV1().ServiceAccounts(serviceAccount.Namespace).Create(serviceAccount); err != nil && !apierrors.IsAlreadyExists(err) {
+		return err
+	}
+
+	configMap := cloudprovider.CSIFeatureStatesConfigMap()
+	if _, err := targetClusterClient.CoreV1().ConfigMaps(configMap.Namespace).Create(configMap); err != nil && !apierrors.IsAlreadyExists(err) {
 		return err
 	}
 
