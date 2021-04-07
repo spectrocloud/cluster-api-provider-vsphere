@@ -46,7 +46,7 @@ func setHostName(hostname string, config *ignitionTypes.Config) *ignitionTypes.C
 	return config
 }
 
-func setNetowrk(devices []infrav1.NetworkDeviceSpec, config *ignitionTypes.Config) *ignitionTypes.Config {
+func setNetwork(devices []infrav1.NetworkDeviceSpec, config *ignitionTypes.Config) *ignitionTypes.Config {
 	ip4 := ""
 	for _, device := range devices {
 		if len(device.IPAddrs) > 0 {
@@ -56,8 +56,8 @@ func setNetowrk(devices []infrav1.NetworkDeviceSpec, config *ignitionTypes.Confi
 
 	if len(config.Networkd.Units) == 0 {
 		config.Networkd.Units = append(config.Networkd.Units, ignitionTypes.Networkdunit{
-			Contents: fmt.Sprintf("[Match]\nName=ens12\n\n[Network]\nAddress=%s", ip4),
-			Name:     "00-ens12.network",
+			Contents: fmt.Sprintf("[Match]\nName=ens192\n\n[Network]\nAddress=%s", ip4),
+			Name:     "00-ens192.network",
 		})
 	}
 

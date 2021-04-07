@@ -274,7 +274,7 @@ func GetMachineMetadataIgnition(bootstrapData bootstrap.VMBootstrapData, hostnam
 	setHostName(hostname, config)
 
 	if !waitForIPv4 && !waitForIPv6 {
-		setNetowrk(devices, config)
+		setNetwork(devices, config)
 	}
 
 
