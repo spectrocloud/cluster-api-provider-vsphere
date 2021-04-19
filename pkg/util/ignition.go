@@ -3,6 +3,8 @@ package util
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
+
 	"github.com/coreos/ignition/config/util"
 	ignitionTypes "github.com/coreos/ignition/config/v2_3/types"
 	"github.com/pkg/errors"
@@ -48,15 +50,22 @@ func setHostName(hostname string, config *ignitionTypes.Config) *ignitionTypes.C
 
 func setNetwork(devices []infrav1.NetworkDeviceSpec, config *ignitionTypes.Config) *ignitionTypes.Config {
 	ip4 := ""
+	gateway4 := ""
+	dns := ""
+	searchDomains := ""
 	for _, device := range devices {
 		if len(device.IPAddrs) > 0 {
 			ip4 = device.IPAddrs[0]
+			gateway4 = device.Gateway4
+			dns = strings.Join(device.Nameservers, " ")
+			searchDomains = strings.Join(device.SearchDomains, " ")
+			break
 		}
 	}
 
 	if len(config.Networkd.Units) == 0 {
 		config.Networkd.Units = append(config.Networkd.Units, ignitionTypes.Networkdunit{
-			Contents: fmt.Sprintf("[Match]\nName=ens192\n\n[Network]\nAddress=%s", ip4),
+			Contents: fmt.Sprintf("[Match]\nName=ens192\n\n[Network]\nAddress=%s\nGateway=%s\nDNS=%s\nDomains=%s", ip4, gateway4, dns, searchDomains),
 			Name:     "00-ens192.network",
 		})
 	}

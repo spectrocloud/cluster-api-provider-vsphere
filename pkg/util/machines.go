@@ -203,8 +203,8 @@ func GetMachineMetadata(hostname string, machine infrav1.VSphereVM, networkStatu
 }
 
 
-// GetMachineMetadata returns the cloud-init metadata as a base-64 encoded
-// string for a given VSphereMachine.
+// GetMachineMetadataIgnition returns the ignition metadata
+// for a given VSphereMachine, withc network and .
 func GetMachineMetadataIgnition(bootstrapData bootstrap.VMBootstrapData, hostname string, machine infrav1.VSphereVM, networkStatus ...infrav1.NetworkStatus) ([]byte, error) {
 	// Create a copy of the devices and add their MAC addresses from a network status.
 	devices := make([]infrav1.NetworkDeviceSpec, len(machine.Spec.Network.Devices))
@@ -239,32 +239,6 @@ func GetMachineMetadataIgnition(bootstrapData bootstrap.VMBootstrapData, hostnam
 			waitForIPv6 = true
 		}
 	}
-
-	//buf := &bytes.Buffer{}
-	//tpl := template.Must(template.New("t").Funcs(
-	//	template.FuncMap{
-	//		"nameservers": func(spec infrav1.NetworkDeviceSpec) bool {
-	//			return len(spec.Nameservers) > 0 || len(spec.SearchDomains) > 0
-	//		},
-	//	}).Parse(metadataFormat))
-	//if err := tpl.Execute(buf, struct {
-	//	Hostname    string
-	//	Devices     []infrav1.NetworkDeviceSpec
-	//	Routes      []infrav1.NetworkRouteSpec
-	//	WaitForIPv4 bool
-	//	WaitForIPv6 bool
-	//}{
-	//	Hostname:    hostname, // note that hostname determines the Kubernetes node name
-	//	Devices:     devices,
-	//	Routes:      machine.Spec.Network.Routes,
-	//	WaitForIPv4: waitForIPv4,
-	//	WaitForIPv6: waitForIPv6,
-	//}); err != nil {
-	//	return nil, errors.Wrapf(
-	//		err,
-	//		"error getting cloud init metadata for machine %s/%s/%s",
-	//		machine.Namespace, machine.ClusterName, machine.Name)
-	//}
 
 	config, err := ConverBootstrapDatatoIgnition(bootstrapData.GetValue())
 	if err != nil {

@@ -97,9 +97,6 @@ func (vms *VMService) ReconcileVM(ctx *context.VMContext) (vm infrav1.VirtualMac
 			return vm, err
 		}
 
-		ctx.Logger.Info("[watch] creating vm with bootstrap data", "data",
-			string(bootstrapData.GetValue()), "format", bootstrapData.GetFormat())
-
 		// Create the VM.
 		err = createVM(ctx, bootstrapData)
 		if err != nil {
@@ -269,11 +266,6 @@ func (vms *VMService) reconcileIgnitionMetadata(ctx *virtualMachineContext, boot
 	if err != nil {
 		return false, err
 	}
-
-	ctx.Logger.Info("old bootstrap data", "old", oldMetadata)
-	ctx.Logger.Info("new bootstrap data", "new", string(newMetadata))
-
-
 
 	// If the metadata is the same then return early.
 	if string(newMetadata) == oldMetadata {
