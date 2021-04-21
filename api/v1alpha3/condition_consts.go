@@ -47,6 +47,14 @@ const (
 	// while installing the container storage interface  addon; those kind of errors are usually transient
 	// the operation is automatically re-tried by the controller.
 	CSIProvisioningFailedReason = "CSIProvisioningFailed"
+
+	// VCenterAvailableCondition documents the connectivity with vcenter
+	// for a given VSphereCluster
+	VCenterAvailableCondition clusterv1.ConditionType = "VCenterAvailable"
+
+	// VCenterUnreachableReason (Severity=Error) documents a VSphereCluster controller detecting
+	// issues with VCenter reachability;
+	VCenterUnreachableReason = "VCenterUnreachable"
 )
 
 // Conditions and condition Reasons for the VSphereMachine and the VSphereVM object.
@@ -69,6 +77,10 @@ const (
 	//
 	// NOTE: This reason does not apply to VSphereVM (this state happens before the VSphereVM is actually created).
 	WaitingForBootstrapDataReason = "WaitingForBootstrapData"
+
+	// WaitingForStaticIPAllocationReason (Severity=Info) documents a VSphereVM waiting for the allocation of
+	// a static IP address.
+	WaitingForStaticIPAllocationReason = "WaitingForStaticIPAllocation"
 
 	// CloningReason documents (Severity=Info) a VSphereMachine/VSphereVM currently executing the clone operation.
 	CloningReason = "Cloning"

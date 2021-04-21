@@ -52,6 +52,7 @@ func (r *VSphereVM) ValidateCreate() error {
 			}
 		}
 	}
+
 	return aggregateObjErrors(r.GroupVersionKind().GroupKind(), r.Name, allErrs)
 }
 
@@ -78,6 +79,10 @@ func (r *VSphereVM) ValidateUpdate(old runtime.Object) error { //nolint
 	// allow changes to bootstrapRef
 	delete(oldVSphereVMSpec, "bootstrapRef")
 	delete(newVSphereVMSpec, "bootstrapRef")
+
+	// allow changes to thumbprint
+	delete(oldVSphereVMSpec, "thumbprint")
+	delete(newVSphereVMSpec, "thumbprint")
 
 	newVSphereVMNetwork := newVSphereVMSpec["network"].(map[string]interface{})
 	oldVSphereVMNetwork := oldVSphereVMSpec["network"].(map[string]interface{})
