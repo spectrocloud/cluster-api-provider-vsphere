@@ -238,8 +238,8 @@ metadata:
   namespace: capv-system
 stringData:
   credentials.yaml: |-
-    username: "${VSPHERE_USERNAME}"
-    password: "${VSPHERE_PASSWORD}"
+    username: '${VSPHERE_USERNAME}'
+    password: '${VSPHERE_PASSWORD}'
 type: Opaque
 ---
 apiVersion: v1
@@ -289,7 +289,7 @@ spec:
         - --upstream=http://127.0.0.1:8080/
         - --logtostderr=true
         - --v=10
-        image: gcr.io/kubebuilder/kube-rbac-proxy:v0.4.0
+        image: gcr.io/kubebuilder/kube-rbac-proxy:v0.8.0
         name: kube-rbac-proxy
         ports:
         - containerPort: 8443
