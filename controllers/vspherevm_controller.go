@@ -136,10 +136,18 @@ func (r vmReconciler) Reconcile(req ctrl.Request) (_ ctrl.Result, reterr error) 
 		return reconcile.Result{}, err
 	}
 
+	params := session.NewParams().
+		WithServer(vsphereVM.Spec.Server).
+		WithDatacenter(vsphereVM.Spec.Datacenter).
+		WithUserInfo(r.ControllerContext.Username, r.ControllerContext.Password).
+		WithThumbprint(vsphereVM.Spec.Thumbprint).
+		WithFeatures(session.Feature{
+			EnableKeepAlive:   r.EnableKeepAlive,
+			KeepAliveDuration: r.KeepAliveDuration,
+		})
 	// Get or create an authenticated session to the vSphere endpoint.
-	authSession, err := session.GetOrCreate(r.Context,
-		vsphereVM.Spec.Server, vsphereVM.Spec.Datacenter,
-		r.ControllerManagerContext.Username, r.ControllerManagerContext.Password)
+	authSession, err := session.GetOrCreate(session.NewSessionContext(r.Context, r.Logger),
+		params)
 	if err != nil {
 		return reconcile.Result{}, errors.Wrap(err, "failed to create vSphere session")
 	}
@@ -214,7 +222,7 @@ func (r vmReconciler) Reconcile(req ctrl.Request) (_ ctrl.Result, reterr error) 
 		// newer than the local resource.
 		// nolint:errcheck
 		wait.PollImmediateInfinite(time.Second*1, func() (bool, error) {
-			// remoteObj refererences the same VSphereVM resource as it exists
+			// remoteObj references the same VSphereVM resource as it exists
 			// on the API server post the patch operation above. In a perfect world,
 			// the Status for localObj and remoteObj should be the same.
 			remoteObj := &infrav1.VSphereVM{}
@@ -286,8 +294,10 @@ func (r vmReconciler) reconcileDelete(ctx *context.VMContext) (reconcile.Result,
 	// TODO(akutz) Implement selection of VM service based on vSphere version
 	var vmService services.VirtualMachineService = &govmomi.VMService{}
 
+	conditions.MarkFalse(ctx.VSphereVM, infrav1.VMProvisionedCondition, clusterv1.DeletingReason, clusterv1.ConditionSeverityInfo, "")
 	vm, err := vmService.DestroyVM(ctx)
 	if err != nil {
+		conditions.MarkFalse(ctx.VSphereVM, infrav1.VMProvisionedCondition, "DeletionFailed", clusterv1.ConditionSeverityWarning, err.Error())
 		return reconcile.Result{}, errors.Wrapf(err, "failed to destroy VM")
 	}
 
@@ -316,6 +326,7 @@ func (r vmReconciler) reconcileNormal(ctx *context.VMContext) (reconcile.Result,
 	var vmService services.VirtualMachineService = &govmomi.VMService{}
 
 	if r.isWaitingForStaticIPAllocation(ctx) {
+		conditions.MarkFalse(ctx.VSphereVM, infrav1.VMProvisionedCondition, infrav1.WaitingForStaticIPAllocationReason, clusterv1.ConditionSeverityInfo, "")
 		ctx.Logger.Info("vm is waiting for static ip to be available")
 		return reconcile.Result{}, nil
 	}
@@ -361,6 +372,10 @@ func (r vmReconciler) reconcileNormal(ctx *context.VMContext) (reconcile.Result,
 	return reconcile.Result{}, nil
 }
 
+// isWaitingForStaticIPAllocation checks whether the VM should wait for a static IP
+// to be allocated.
+// It checks the state of both DHCP4 and DHCP6 for all the network devices and if
+// any static IP addresses are specified.
 func (r vmReconciler) isWaitingForStaticIPAllocation(ctx *context.VMContext) bool {
 	devices := ctx.VSphereVM.Spec.Network.Devices
 	for _, dev := range devices {

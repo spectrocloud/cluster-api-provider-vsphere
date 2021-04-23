@@ -18,31 +18,23 @@ package session
 
 import (
 	"context"
-	"fmt"
 	"net/url"
 	"sync"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	"github.com/vmware/govmomi"
 	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/session"
-	"github.com/vmware/govmomi/session/keepalive"
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/methods"
 	"github.com/vmware/govmomi/vim25/soap"
 
 	"sigs.k8s.io/cluster-api-provider-vsphere/api/v1alpha3"
-	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/constants"
 )
-
-// TODO make these configurable
-const EnableKeepAliveSession = true
-const KeepAliveIntervalInMinute = 5
-
-// TODO pass logger down from controller
-var govlog = ctrl.Log.WithName("govmomi client")
 
 var sessionCache = map[string]Session{}
 var sessionMU sync.Mutex
@@ -54,131 +46,134 @@ type Session struct {
 	datacenter *object.Datacenter
 }
 
-// GetOrCreate gets a cached session or creates a new one if one does not
-// already exist.
-func GetOrCreate(
-	ctx context.Context,
-	server, datacenter, username, password string) (*Session, error) {
+// wrapper around session context
+// TODO: sadysnaat replace with controller-manager context logger
+type Context struct {
+	context context.Context
+	logger  logr.Logger
+}
 
-	if EnableKeepAliveSession {
-		return GetOrCreateKeepAliveSession(ctx, server, datacenter, username, password)
+func NewSessionContext(ctx context.Context, logger logr.Logger) Context {
+	return Context{
+		context: ctx,
+		logger:  logger.WithName("session"),
 	}
+}
 
-	return GetOrCreateNonKeepAliveSession(ctx, server, datacenter, username, password)
+type Feature struct {
+	EnableKeepAlive   bool
+	KeepAliveDuration time.Duration
+}
+
+func DefaultFeature() Feature {
+	return Feature{
+		EnableKeepAlive: constants.DefaultEnableKeepAlive,
+	}
+}
+
+type Params struct {
+	server     string
+	datacenter string
+	userinfo   *url.Userinfo
+	thumbprint string
+	feature    Feature
+}
+
+func NewParams() *Params {
+	return &Params{
+		feature: DefaultFeature(),
+	}
+}
+
+func (p *Params) WithServer(server string) *Params {
+	p.server = server
+	return p
+}
+
+func (p *Params) WithDatacenter(datacenter string) *Params {
+	p.datacenter = datacenter
+	return p
+}
+
+func (p *Params) WithUserInfo(username, password string) *Params {
+	p.userinfo = url.UserPassword(username, password)
+	return p
+}
+
+func (p *Params) WithThumbprint(thumbprint string) *Params {
+	p.thumbprint = thumbprint
+	return p
+}
+
+func (p *Params) WithFeatures(feature Feature) *Params {
+	p.feature = feature
+	return p
 }
 
 // GetOrCreate gets a cached session or creates a new one if one does not
 // already exist.
-// If session exists, this call will still go to vcenter to validate if session
-// is active, thus making at least one api call to vcenter everytime this is called
-// while GetOrCreateKeepAliveSession will only do on call per configured interval
-func GetOrCreateNonKeepAliveSession(
-	ctx context.Context,
-	server, datacenter, username, password string) (*Session, error) {
+func GetOrCreate(ctx Context, params *Params) (*Session, error) {
 
 	sessionMU.Lock()
 	defer sessionMU.Unlock()
 
-	sessionKey := server + username + datacenter
-	if currentSession, ok := sessionCache[sessionKey]; ok {
-		if ok, _ := currentSession.SessionManager.SessionIsActive(ctx); ok {
-			return &currentSession, nil
+	sessionKey := params.server + params.userinfo.Username() + params.datacenter
+	if session, ok := sessionCache[sessionKey]; ok {
+		// if keepalive is enabled we depend upon roundtripper to reestablish the connection
+		// and remove the key if it could not
+		if params.feature.EnableKeepAlive {
+			return &session, nil
+		}
+		if ok, _ := session.SessionManager.SessionIsActive(ctx.context); ok {
+			return &session, nil
 		}
 	}
 
-	soapURL, err := soap.ParseURL(server)
+	soapURL, err := soap.ParseURL(params.server)
 	if err != nil {
-		return nil, errors.Wrapf(err, "error parsing vSphere URL %q", server)
+		return nil, errors.Wrapf(err, "error parsing vSphere URL %q", params.server)
 	}
 	if soapURL == nil {
-		return nil, errors.Errorf("error parsing vSphere URL %q", server)
+		return nil, errors.Errorf("error parsing vSphere URL %q", params.server)
 	}
 
-	soapURL.User = url.UserPassword(username, password)
-
-	// Temporarily setting the insecure flag True
-	// TODO(ssurana): handle the certs better
-	client, err := govmomi.NewClient(ctx, soapURL, true)
+	soapURL.User = params.userinfo
+	client, err := newClient(ctx, sessionKey, soapURL, params.thumbprint, params.feature)
 	if err != nil {
-		return nil, errors.Wrapf(err, "error setting up new vSphere SOAP client")
+		return nil, err
 	}
 
-	currentSession := Session{Client: client}
-	currentSession.UserAgent = v1alpha3.GroupVersion.String()
+	session := Session{Client: client}
+	session.UserAgent = v1alpha3.GroupVersion.String()
 
 	// Assign the finder to the session.
-	currentSession.Finder = find.NewFinder(currentSession.Client.Client, false)
+	session.Finder = find.NewFinder(session.Client.Client, false)
 
 	// Assign the datacenter if one was specified.
-	dc, err := currentSession.Finder.DatacenterOrDefault(ctx, datacenter)
+	dc, err := session.Finder.DatacenterOrDefault(ctx.context, params.datacenter)
 	if err != nil {
-		return nil, errors.Wrapf(err, "unable to find datacenter %q", datacenter)
+		return nil, errors.Wrapf(err, "unable to find datacenter %q", params.datacenter)
 	}
-	currentSession.datacenter = dc
-	currentSession.Finder.SetDatacenter(dc)
+	session.datacenter = dc
+	session.Finder.SetDatacenter(dc)
 
 	// Cache the session.
-	sessionCache[sessionKey] = currentSession
+	sessionCache[sessionKey] = session
 
 	// TODO(akutz) Reintroduce the logger.
 	//ctx.Logger.V(2).Info("cached vSphere client session", "server", server, "datacenter", datacenter)
 
-	return &currentSession, nil
+	return &session, nil
 }
 
-// GetOrCreateKeepAliveSession gets a cached keepalive session or creates a new one if one does not exist
-// this session will not do a active check for every call, instead it'll do a keepalive check every configured
-// interval to keep the session alive
-func GetOrCreateKeepAliveSession(
-	ctx context.Context,
-	server, datacenter, username, password string) (*Session, error) {
-
-	sessionMU.Lock()
-	defer sessionMU.Unlock()
-
-	sessionKey := server + username + datacenter
-	currentSession, ok := sessionCache[sessionKey]
-
-	if ok {
-		return &currentSession, nil
+func newClient(ctx Context, sessionKey string, url *url.URL, thumprint string, feature Feature) (*govmomi.Client, error) {
+	insecure := thumprint == ""
+	soapClient := soap.NewClient(url, insecure)
+	if !insecure {
+		soapClient.SetThumbprint(url.Host, thumprint)
 	}
 
-	// govmomi client
-	client, err := createGovmomiClientWithKeepAlive(ctx, sessionKey, server, username, password)
-	if err != nil {
-		return nil, err
-	}
-
-	currentSession = Session{Client: client}
-	currentSession.UserAgent = v1alpha3.GroupVersion.String()
-	// Assign the finder to the currentSession.
-	currentSession.Finder = find.NewFinder(currentSession.Client.Client, false)
-
-	// Assign the datacenter if one was specified.
-	dc, err := currentSession.Finder.DatacenterOrDefault(ctx, datacenter)
-	if err != nil {
-		return nil, errors.Wrapf(err, "unable to find datacenter %q", datacenter)
-	}
-
-	currentSession.datacenter = dc
-	currentSession.Finder.SetDatacenter(dc)
-
-	// Cache the currentcurrentSession.
-	sessionCache[sessionKey] = currentSession
-	return &currentSession, nil
-}
-
-func createGovmomiClientWithKeepAlive(ctx context.Context, sessionKey, server, username, password string) (*govmomi.Client, error) {
-	//get vcenter URL
-	vCenterURL, err := getVCenterURL(server, username, password)
-	if err != nil {
-		return nil, err
-	}
-
-	insecure := true
-
-	soapClient := soap.NewClient(vCenterURL, insecure)
-	vimClient, err := vim25.NewClient(ctx, soapClient)
+	vimClient, err := vim25.NewClient(ctx.context, soapClient)
 	if err != nil {
 		return nil, err
 	}
@@ -188,49 +183,34 @@ func createGovmomiClientWithKeepAlive(ctx context.Context, sessionKey, server, u
 		SessionManager: session.NewManager(vimClient),
 	}
 
-	send := func() error {
-		ctx := context.Background()
-		_, err := methods.GetCurrentTime(ctx, vimClient.RoundTripper)
-		if err != nil {
-			govlog.Error(err, "failed to keep alive govmomi client")
-			ClearCache(sessionKey)
-		}
-		return err
+	if feature.EnableKeepAlive {
+		vimClient.RoundTripper = session.KeepAliveHandler(vimClient.RoundTripper, feature.KeepAliveDuration, func(tripper soap.RoundTripper) error {
+			// we tried implementing
+			// c.Login here but the client once logged out
+			// keeps errong in invalid username or password
+			// we tried with cached username and password in session still the error persisted
+			// hence we just clear the cache and expect the client to
+			// be recreated in next GetOrCreate call
+			_, err := methods.GetCurrentTime(ctx.context, tripper)
+			if err != nil {
+				ctx.logger.Error(err, "failed to keep alive govmomi client")
+				clearCache(sessionKey)
+			}
+			return err
+		})
 	}
 
-	// this starts the keep alive handler when Login is called, and stops the handler when Logout is called
-	// it'll also stop the handler when send() returns error, so we wrap around the default send()
-	// with err check to clear cache in case of error
-	vimClient.RoundTripper = keepalive.NewHandlerSOAP(vimClient.RoundTripper, KeepAliveIntervalInMinute*time.Minute, send)
-
-	// Only login if the URL contains user information.
-	if vCenterURL.User != nil {
-		govlog.V(0).Info("########### login to vcenter for soap client ###############")
-		err = c.Login(ctx, vCenterURL.User)
-		if err != nil {
-			return nil, err
-		}
+	if err := c.Login(ctx.context, url.User); err != nil {
+		return nil, err
 	}
 
 	return c, nil
 }
 
-func ClearCache(sessionKey string) {
+func clearCache(sessionKey string) {
 	sessionMU.Lock()
 	defer sessionMU.Unlock()
 	delete(sessionCache, sessionKey)
-}
-
-func getVCenterURL(vCenterServer string, vCenterUsername string, vCenterPassword string) (*url.URL, error) {
-	//create vcenter URL
-	vCenterURL, err := url.Parse(fmt.Sprintf("https://%s/sdk", vCenterServer))
-	if err != nil {
-		return nil, errors.Errorf("invalid vCenter server")
-
-	}
-	vCenterURL.User = url.UserPassword(vCenterUsername, vCenterPassword)
-
-	return vCenterURL, nil
 }
 
 // FindByBIOSUUID finds an object by its BIOS UUID.

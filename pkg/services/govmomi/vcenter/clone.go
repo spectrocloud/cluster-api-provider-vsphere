@@ -17,8 +17,14 @@ limitations under the License.
 package vcenter
 
 import (
+	"fmt"
+	"math/rand"
+	"time"
+
 	"github.com/pkg/errors"
 	"github.com/vmware/govmomi/object"
+	"github.com/vmware/govmomi/pbm"
+	pbmTypes "github.com/vmware/govmomi/pbm/types"
 	"github.com/vmware/govmomi/vim25/mo"
 	"github.com/vmware/govmomi/vim25/types"
 	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/services/govmomi/bootstrap"
@@ -35,7 +41,7 @@ const (
 )
 
 // Clone kicks off a clone operation on vCenter to create a new virtual machine.
-// nolint:gocognit
+// nolint:gocognit,gocyclo
 func Clone(ctx *context.VMContext, data bootstrap.VMBootstrapData) error {
 	ctx = &context.VMContext{
 		ControllerContext: ctx.ControllerContext,
@@ -51,6 +57,12 @@ func Clone(ctx *context.VMContext, data bootstrap.VMBootstrapData) error {
 	if len(data.GetValue()) > 0 {
 		ctx.Logger.V(0).Info("[watch] applied bootstrap data to VM clone spec")
 		if err := extraConfig.SetCloudInitUserData(data); err != nil {
+			return err
+		}
+	}
+	if ctx.VSphereVM.Spec.CustomVMXKeys != nil {
+		ctx.Logger.Info("applied custom vmx keys o VM clone spec")
+		if err := extraConfig.SetCustomVMXKeys(ctx.VSphereVM.Spec.CustomVMXKeys); err != nil {
 			return err
 		}
 	}
@@ -103,11 +115,6 @@ func Clone(ctx *context.VMContext, data bootstrap.VMBootstrapData) error {
 	folder, err := ctx.Session.Finder.FolderOrDefault(ctx, ctx.VSphereVM.Spec.Folder)
 	if err != nil {
 		return errors.Wrapf(err, "unable to get folder for %q", ctx)
-	}
-
-	datastore, err := ctx.Session.Finder.DatastoreOrDefault(ctx, ctx.VSphereVM.Spec.Datastore)
-	if err != nil {
-		return errors.Wrapf(err, "unable to get datastore for %q", ctx)
 	}
 
 	pool, err := ctx.Session.Finder.ResourcePoolOrDefault(ctx, ctx.VSphereVM.Spec.ResourcePool)
@@ -165,7 +172,6 @@ func Clone(ctx *context.VMContext, data bootstrap.VMBootstrapData) error {
 			MemoryMB:          memMiB,
 		},
 		Location: types.VirtualMachineRelocateSpec{
-			Datastore:    types.NewReference(datastore.Reference()),
 			DiskMoveType: string(diskMoveType),
 			Folder:       types.NewReference(folder.Reference()),
 			Pool:         types.NewReference(pool.Reference()),
@@ -177,6 +183,73 @@ func Clone(ctx *context.VMContext, data bootstrap.VMBootstrapData) error {
 		PowerOn:  false,
 		Snapshot: snapshotRef,
 	}
+
+	var datastoreRef *types.ManagedObjectReference
+	if ctx.VSphereVM.Spec.Datastore != "" {
+		datastore, err := ctx.Session.Finder.Datastore(ctx, ctx.VSphereVM.Spec.Datastore)
+		if err != nil {
+			return errors.Wrapf(err, "unable to get datastore %s for %q", ctx.VSphereVM.Spec.Datastore, ctx)
+		}
+		datastoreRef = types.NewReference(datastore.Reference())
+		spec.Location.Datastore = datastoreRef
+	}
+
+	var storageProfileID string
+	if ctx.VSphereVM.Spec.StoragePolicyName != "" {
+		pbmClient, err := pbm.NewClient(ctx, ctx.Session.Client.Client)
+		if err != nil {
+			return errors.Wrapf(err, "unable to create pbm client for %q", ctx)
+		}
+
+		storageProfileID, err = pbmClient.ProfileIDByName(ctx, ctx.VSphereVM.Spec.StoragePolicyName)
+		if err != nil {
+			return errors.Wrapf(err, "unable to get storageProfileID from name %s for %q", ctx.VSphereVM.Spec.StoragePolicyName, ctx)
+		}
+		spec.Location.Profile = []types.BaseVirtualMachineProfileSpec{
+			&types.VirtualMachineDefinedProfileSpec{ProfileId: storageProfileID},
+		}
+
+		var constraints []pbmTypes.BasePbmPlacementRequirement
+		constraints = append(constraints, &pbmTypes.PbmPlacementCapabilityProfileRequirement{ProfileId: pbmTypes.PbmProfileId{UniqueId: storageProfileID}})
+		result, err := pbmClient.CheckRequirements(ctx, nil, nil, constraints)
+
+		if err != nil {
+			return errors.Wrapf(err, "unable to check requirements for storage policy")
+		}
+		if len(result.CompatibleDatastores()) == 0 {
+			return errors.New(fmt.Sprintf("no compatible datastores found for storage policy: %s", ctx.VSphereVM.Spec.StoragePolicyName))
+		}
+
+		if datastoreRef != nil {
+			ctx.Logger.Info("datastore and storagepolicy defined; searching for datastore in storage policy compatible datastores")
+			found := false
+			for _, ds := range result.CompatibleDatastores() {
+				compatibleRef := types.ManagedObjectReference{Type: ds.HubType, Value: ds.HubId}
+				if compatibleRef.String() == datastoreRef.String() {
+					found = true
+				}
+			}
+			if !found {
+				return errors.New(fmt.Sprintf("couldn't find specified datastore: %s in compatible list of datastores for storage policy", ctx.VSphereVM.Spec.Datastore))
+			}
+		} else {
+			rand.Seed(time.Now().UnixNano())
+			ds := result.CompatibleDatastores()[rand.Intn(len(result.CompatibleDatastores()))]
+			datastoreRef = &types.ManagedObjectReference{Type: ds.HubType, Value: ds.HubId}
+		}
+	}
+
+	if datastoreRef == nil {
+		// if no datastore defined through VM spec or storage policy, use default
+		datastore, err := ctx.Session.Finder.DefaultDatastore(ctx)
+		if err != nil {
+			return errors.Wrapf(err, "unable to get default datastore for %q", ctx)
+		}
+		datastoreRef = types.NewReference(datastore.Reference())
+	}
+
+	disks := devices.SelectByType((*types.VirtualDisk)(nil))
+	spec.Location.Disk = getDiskLocators(disks, *datastoreRef, storageProfileID)
 
 	ctx.Logger.Info("cloning machine", "namespace", ctx.VSphereVM.Namespace, "name", ctx.VSphereVM.Name, "cloneType", ctx.VSphereVM.Status.CloneMode)
 	task, err := tpl.Clone(ctx, folder, ctx.VSphereVM.Name, spec)
@@ -202,6 +275,29 @@ func newVMFlagInfo() *types.VirtualMachineFlagInfo {
 	}
 }
 
+func getDiskLocators(disks object.VirtualDeviceList, datastoreRef types.ManagedObjectReference, storageProfileID string) []types.VirtualMachineRelocateSpecDiskLocator {
+	diskLocators := make([]types.VirtualMachineRelocateSpecDiskLocator, 0, len(disks))
+	for _, disk := range disks {
+		dl := types.VirtualMachineRelocateSpecDiskLocator{
+			DiskId:       disk.GetVirtualDevice().Key,
+			DiskMoveType: string(types.VirtualMachineRelocateDiskMoveOptionsMoveChildMostDiskBacking),
+			Datastore:    datastoreRef,
+		}
+
+		if storageProfileID != "" {
+			dl.Profile = []types.BaseVirtualMachineProfileSpec{
+				&types.VirtualMachineDefinedProfileSpec{ProfileId: storageProfileID},
+			}
+		}
+		if vmDiskBacking, ok := disk.(*types.VirtualDisk).Backing.(*types.VirtualDiskFlatVer2BackingInfo); ok {
+			dl.DiskBackingInfo = vmDiskBacking
+		}
+		diskLocators = append(diskLocators, dl)
+	}
+
+	return diskLocators
+}
+
 func getDiskSpec(
 	ctx *context.VMContext,
 	devices object.VirtualDeviceList) (types.BaseVirtualDeviceConfigSpec, error) {
@@ -212,7 +308,13 @@ func getDiskSpec(
 	}
 
 	disk := disks[0].(*types.VirtualDisk)
-	disk.CapacityInKB = int64(ctx.VSphereVM.Spec.DiskGiB) * 1024 * 1024
+	cloneCapacityKB := int64(ctx.VSphereVM.Spec.DiskGiB) * 1024 * 1024
+	if disk.CapacityInKB > cloneCapacityKB {
+		return nil, errors.Errorf(
+			"can't resize template disk down, initial capacity is larger: %dKiB > %dKiB",
+			disk.CapacityInKB, cloneCapacityKB)
+	}
+	disk.CapacityInKB = cloneCapacityKB
 
 	return &types.VirtualDeviceConfigSpec{
 		Operation: types.VirtualDeviceConfigSpecOperationEdit,

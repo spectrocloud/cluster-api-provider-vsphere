@@ -33,29 +33,29 @@ import (
 )
 
 const (
-	clusterNameVar               = "${ CLUSTER_NAME }"
-	controlPlaneMachineCountVar  = "${ CONTROL_PLANE_MACHINE_COUNT }"
-	defaultCloudProviderImage    = "gcr.io/cloud-provider-vsphere/cpi/release/manager:v1.2.1"
+	clusterNameVar               = "${CLUSTER_NAME}"
+	controlPlaneMachineCountVar  = "${CONTROL_PLANE_MACHINE_COUNT}"
 	defaultClusterCIDR           = "192.168.0.0/16"
 	defaultDiskGiB               = 25
 	defaultMemoryMiB             = 8192
 	defaultNumCPUs               = 2
-	kubernetesVersionVar         = "${ KUBERNETES_VERSION }"
+	kubernetesVersionVar         = "${KUBERNETES_VERSION}"
 	machineDeploymentNameSuffix  = "-md-0"
-	namespaceVar                 = "${ NAMESPACE }"
-	vSphereDataCenterVar         = "${ VSPHERE_DATACENTER }"
-	vSphereDatastoreVar          = "${ VSPHERE_DATASTORE }"
-	vSphereFolderVar             = "${ VSPHERE_FOLDER }"
-	vSphereHaproxyTemplateVar    = "${ VSPHERE_HAPROXY_TEMPLATE }"
-	vSphereNetworkVar            = "${ VSPHERE_NETWORK }"
-	vSphereResourcePoolVar       = "${ VSPHERE_RESOURCE_POOL }"
-	vSphereServerVar             = "${ VSPHERE_SERVER }"
-	vSphereSSHAuthorizedKeysVar  = "${ VSPHERE_SSH_AUTHORIZED_KEY }"
-	vSphereTemplateVar           = "${ VSPHERE_TEMPLATE }"
-	workerMachineCountVar        = "${ WORKER_MACHINE_COUNT }"
-	controlPlaneEndpointVar      = "${ CONTROL_PLANE_ENDPOINT_IP }"
-	vSphereUsername              = "${ VSPHERE_USERNAME }"
-	vSpherePassword              = "${ VSPHERE_PASSWORD }" /* #nosec */
+	namespaceVar                 = "${NAMESPACE}"
+	vSphereDataCenterVar         = "${VSPHERE_DATACENTER}"
+	vSphereThumbprint            = "${VSPHERE_TLS_THUMBPRINT}"
+	vSphereDatastoreVar          = "${VSPHERE_DATASTORE}"
+	vSphereFolderVar             = "${VSPHERE_FOLDER}"
+	vSphereHaproxyTemplateVar    = "${VSPHERE_HAPROXY_TEMPLATE}"
+	vSphereNetworkVar            = "${VSPHERE_NETWORK}"
+	vSphereResourcePoolVar       = "${VSPHERE_RESOURCE_POOL}"
+	vSphereServerVar             = "${VSPHERE_SERVER}"
+	vSphereSSHAuthorizedKeysVar  = "${VSPHERE_SSH_AUTHORIZED_KEY}"
+	vSphereTemplateVar           = "${VSPHERE_TEMPLATE}"
+	workerMachineCountVar        = "${WORKER_MACHINE_COUNT}"
+	controlPlaneEndpointVar      = "${CONTROL_PLANE_ENDPOINT_IP}"
+	vSphereUsername              = "${VSPHERE_USERNAME}"
+	vSpherePassword              = "${VSPHERE_PASSWORD}" /* #nosec */
 	clusterResourceSetNameSuffix = "-crs-0"
 )
 
@@ -70,19 +70,19 @@ var (
 	replacements = []replacement{
 		{
 			kind:      "KubeadmControlPlane",
-			name:      "${ CLUSTER_NAME }",
+			name:      "${CLUSTER_NAME}",
 			value:     controlPlaneMachineCountVar,
 			fieldPath: []string{"spec", "replicas"},
 		},
 		{
 			kind:      "MachineDeployment",
-			name:      "${ CLUSTER_NAME }-md-0",
+			name:      "${CLUSTER_NAME}-md-0",
 			value:     workerMachineCountVar,
 			fieldPath: []string{"spec", "replicas"},
 		},
 		{
 			kind:      "MachineDeployment",
-			name:      "${ CLUSTER_NAME }-md-0",
+			name:      "${CLUSTER_NAME}-md-0",
 			value:     map[string]interface{}{},
 			fieldPath: []string{"spec", "selector", "matchLabels"},
 		},
@@ -121,15 +121,19 @@ func newVSphereCluster(lb *infrav1.HAProxyLoadBalancer) infrav1.VSphereCluster {
 			Namespace: namespaceVar,
 		},
 		Spec: infrav1.VSphereClusterSpec{
-			Server: vSphereServerVar,
+			Server:     vSphereServerVar,
+			Thumbprint: vSphereThumbprint,
 			CloudProviderConfiguration: infrav1.CPIConfig{
 				Global: infrav1.CPIGlobalConfig{
 					SecretName:      "cloud-provider-vsphere-credentials",
 					SecretNamespace: metav1.NamespaceSystem,
-					Insecure:        true,
+					Thumbprint:      vSphereThumbprint,
 				},
 				VCenter: map[string]infrav1.CPIVCenterConfig{
-					vSphereServerVar: {Datacenters: vSphereDataCenterVar},
+					vSphereServerVar: {
+						Datacenters: vSphereDataCenterVar,
+						Thumbprint:  vSphereThumbprint,
+					},
 				},
 				Network: infrav1.CPINetworkConfig{
 					Name: vSphereNetworkVar,
@@ -143,7 +147,7 @@ func newVSphereCluster(lb *infrav1.HAProxyLoadBalancer) infrav1.VSphereCluster {
 				},
 				ProviderConfig: infrav1.CPIProviderConfig{
 					Cloud: &infrav1.CPICloudConfig{
-						ControllerImage: defaultCloudProviderImage,
+						ControllerImage: cloudprovidersvc.DefaultCPIControllerImage,
 					},
 					Storage: &infrav1.CPIStorageConfig{
 						ControllerImage:     cloudprovidersvc.DefaultCSIControllerImage,
@@ -247,15 +251,17 @@ func defaultVirtualMachineCloneSpec() infrav1.VirtualMachineCloneSpec {
 				},
 			},
 		},
-		CloneMode:    infrav1.LinkedClone,
-		NumCPUs:      defaultNumCPUs,
-		DiskGiB:      defaultDiskGiB,
-		MemoryMiB:    defaultMemoryMiB,
-		Template:     vSphereTemplateVar,
-		Server:       vSphereServerVar,
-		ResourcePool: vSphereResourcePoolVar,
-		Datastore:    vSphereDatastoreVar,
-		Folder:       vSphereFolderVar,
+		CustomVMXKeys: defaultCustomVMXKeys(),
+		CloneMode:     infrav1.LinkedClone,
+		NumCPUs:       defaultNumCPUs,
+		DiskGiB:       defaultDiskGiB,
+		MemoryMiB:     defaultMemoryMiB,
+		Template:      vSphereTemplateVar,
+		Server:        vSphereServerVar,
+		Thumbprint:    vSphereThumbprint,
+		ResourcePool:  vSphereResourcePoolVar,
+		Datastore:     vSphereDatastoreVar,
+		Folder:        vSphereFolderVar,
 	}
 }
 
@@ -330,6 +336,10 @@ func defaultControlPlaneComponent() kubeadmv1beta1.ControlPlaneComponent {
 	}
 }
 
+func defaultCustomVMXKeys() map[string]string {
+	return map[string]string{}
+}
+
 func defaultExtraArgs() map[string]string {
 	return map[string]string{
 		"cloud-provider": "external",
@@ -361,7 +371,7 @@ func kubeVIPPod() string {
 			Containers: []v1.Container{
 				{
 					Name:  "kube-vip",
-					Image: "plndr/kube-vip:0.1.7",
+					Image: "plndr/kube-vip:0.3.2",
 					Args: []string{
 						"start",
 					},
@@ -397,6 +407,18 @@ func kubeVIPPod() string {
 							// this is hardcoded since we use eth0 as a network interface for all of our machines in this template
 							Name:  "vip_interface",
 							Value: "eth0",
+						},
+						{
+							Name:  "vip_leaseduration",
+							Value: "15",
+						},
+						{
+							Name:  "vip_renewdeadline",
+							Value: "10",
+						},
+						{
+							Name:  "vip_retryperiod",
+							Value: "2",
 						},
 					},
 				},
