@@ -65,8 +65,8 @@ func setNetwork(devices []infrav1.NetworkDeviceSpec, config *ignitionTypes.Confi
 
 	if len(config.Networkd.Units) == 0 {
 		config.Networkd.Units = append(config.Networkd.Units, ignitionTypes.Networkdunit{
-			Contents: fmt.Sprintf("[Match]\nName=ens192\n\n[Network]\nAddress=%s\nGateway=%s\nDNS=%s\nDomains=%s", ip4, gateway4, dns, searchDomains),
-			Name:     "00-ens192.network",
+			Contents: fmt.Sprintf("[Match]\nName=eth0\n\n[Network]\nAddress=%s\nGateway=%s\nDNS=%s\nDomains=%s", ip4, gateway4, dns, searchDomains),
+			Name:     "00-eth0.network",
 		})
 	}
 
