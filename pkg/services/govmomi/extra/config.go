@@ -20,10 +20,39 @@ import (
 	"encoding/base64"
 
 	"github.com/vmware/govmomi/vim25/types"
+	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/services/govmomi/bootstrap"
 )
 
 // Config is data used with a VM's guestInfo RPC interface.
 type Config []types.BaseOptionValue
+
+
+const (
+	userdataKey         = "guestinfo.userdata"
+	userdataEncodingKey = "guestinfo.userdata.encoding"
+	ignitionKey         = "guestinfo.ignition.config.data"
+	ignitionEncodingKey = "guestinfo.ignition.config.data.encoding"
+)
+
+func getGuestInfoKeyByFormat(format bootstrap.Format) string {
+	switch format {
+	case bootstrap.CloudConfig:
+		return userdataKey
+	case bootstrap.Ignition:
+		return ignitionKey
+	}
+	return userdataKey
+}
+
+func getGuestInfoEncodingKey(format bootstrap.Format) string {
+	switch format {
+	case bootstrap.CloudConfig:
+		return userdataEncodingKey
+	case bootstrap.Ignition:
+		return ignitionEncodingKey
+	}
+	return userdataEncodingKey
+}
 
 // SetCustomVMXKeys sets the custom VMX keys as
 // OptionValues in extraConfig
@@ -39,14 +68,14 @@ func (e *Config) SetCustomVMXKeys(customKeys map[string]string) error {
 
 // SetCloudInitUserData sets the cloud init user data at the key
 // "guestinfo.userdata" as a base64-encoded string.
-func (e *Config) SetCloudInitUserData(data []byte) error {
+func (e *Config) SetCloudInitUserData(data bootstrap.VMBootstrapData) error {
 	*e = append(*e,
 		&types.OptionValue{
-			Key:   "guestinfo.userdata",
-			Value: e.encode(data),
+			Key:   getGuestInfoKeyByFormat(data.GetFormat()),
+			Value: e.encode(data.GetValue()),
 		},
 		&types.OptionValue{
-			Key:   "guestinfo.userdata.encoding",
+			Key:   getGuestInfoEncodingKey(data.GetFormat()),
 			Value: "base64",
 		},
 	)

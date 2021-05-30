@@ -19,8 +19,10 @@ package util
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"net"
 	"regexp"
+	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/services/govmomi/bootstrap"
 	"text/template"
 
 	"github.com/pkg/errors"
@@ -199,6 +201,67 @@ func GetMachineMetadata(hostname string, machine infrav1.VSphereVM, networkStatu
 	}
 	return buf.Bytes(), nil
 }
+
+
+// GetMachineMetadataIgnition returns the ignition metadata
+// for a given VSphereMachine, withc network and .
+func GetMachineMetadataIgnition(bootstrapData bootstrap.VMBootstrapData, hostname string, machine infrav1.VSphereVM, networkStatus ...infrav1.NetworkStatus) ([]byte, error) {
+	// Create a copy of the devices and add their MAC addresses from a network status.
+	devices := make([]infrav1.NetworkDeviceSpec, len(machine.Spec.Network.Devices))
+	var waitForIPv4, waitForIPv6 bool
+	for i := range machine.Spec.Network.Devices {
+		machine.Spec.Network.Devices[i].DeepCopyInto(&devices[i])
+		if len(networkStatus) > 0 {
+			devices[i].MACAddr = networkStatus[i].MACAddr
+		}
+
+		if waitForIPv4 && waitForIPv6 {
+			// break early as we already wait for ipv4 and ipv6
+			continue
+		}
+		// check static IPs
+		for _, ipStr := range machine.Spec.Network.Devices[i].IPAddrs {
+			ip := net.ParseIP(ipStr)
+			// check the IP family
+			if ip != nil {
+				if ip.To4() == nil {
+					waitForIPv6 = true
+				} else {
+					waitForIPv4 = true
+				}
+			}
+		}
+		// check if DHCP is enabled
+		if machine.Spec.Network.Devices[i].DHCP4 {
+			waitForIPv4 = true
+		}
+		if machine.Spec.Network.Devices[i].DHCP6 {
+			waitForIPv6 = true
+		}
+	}
+
+	config, err := ConverBootstrapDatatoIgnition(bootstrapData.GetValue())
+	if err != nil {
+		return nil, err
+	}
+
+	setHostName(hostname, config)
+
+	if !waitForIPv4 && !waitForIPv6 {
+		setNetwork(devices, config)
+	}
+
+
+
+	data, err := json.Marshal(config)
+	if err != nil {
+		return nil, errors.Wrap(err, "unable to marshal cloudconfig")
+	}
+
+	return data, nil
+}
+
+
 
 const (
 	// ProviderIDPrefix is the string data prefixed to a BIOS UUID in order

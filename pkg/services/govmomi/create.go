@@ -18,13 +18,14 @@ package govmomi
 
 import (
 	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/context"
+	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/services/govmomi/bootstrap"
 	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/services/govmomi/esxi"
 	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/services/govmomi/vcenter"
 )
 
-func createVM(ctx *context.VMContext, bootstrapData []byte) error {
+func createVM(ctx *context.VMContext, data bootstrap.VMBootstrapData) error {
 	if ctx.Session.IsVC() {
-		return vcenter.Clone(ctx, bootstrapData)
+		return vcenter.Clone(ctx, data)
 	}
-	return esxi.Clone(ctx, bootstrapData)
+	return esxi.Clone(ctx, data)
 }

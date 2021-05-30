@@ -19,6 +19,7 @@ package govmomi
 import (
 	"encoding/base64"
 	"fmt"
+	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/services/govmomi/bootstrap"
 
 	"github.com/pkg/errors"
 
@@ -122,9 +123,24 @@ func (vms *VMService) ReconcileVM(ctx *context.VMContext) (vm infrav1.VirtualMac
 		return vm, err
 	}
 
-	if ok, err := vms.reconcileMetadata(vmCtx); err != nil || !ok {
+	// Get the bootstrap data.
+	bootstrapData, err := vms.getBootstrapData(ctx)
+	if err != nil {
+		conditions.MarkFalse(ctx.VSphereVM, infrav1.VMProvisionedCondition, infrav1.CloningFailedReason, clusterv1.ConditionSeverityWarning, err.Error())
 		return vm, err
 	}
+
+	if bootstrapData.GetFormat() == bootstrap.Ignition {
+		if ok, err := vms.reconcileIgnitionMetadata(vmCtx, bootstrapData); err != nil || !ok {
+			return vm, err
+		}
+	} else {
+		if ok, err := vms.reconcileMetadata(vmCtx); err != nil || !ok {
+			return vm, err
+		}
+	}
+
+
 
 	if ok, err := vms.reconcilePowerState(vmCtx); err != nil || !ok {
 		return vm, err
@@ -245,6 +261,39 @@ func (vms *VMService) reconcileMetadata(ctx *virtualMachineContext) (bool, error
 	return false, nil
 }
 
+func (vms *VMService) reconcileIgnitionMetadata(ctx *virtualMachineContext, bootstrapData bootstrap.VMBootstrapData) (bool, error) {
+	newMetadata, err := util.GetMachineMetadataIgnition(bootstrapData, ctx.VSphereVM.Name, *ctx.VSphereVM, ctx.State.Network...)
+	if err != nil {
+		return false, err
+	}
+	oldMetadata, err := vms.getMetadataIgnition(ctx)
+	if err != nil {
+		return false, err
+	}
+
+	// If the metadata is the same then return early.
+	if string(newMetadata) == oldMetadata {
+		ctx.Logger.Info("same config skipping")
+		return true, nil
+	}
+
+	ctx.Logger.Info("updating metadata")
+
+	newBootstrapData := bootstrap.VMBootstrapData{}
+	newBootstrapData.SetFormat(bootstrapData.GetFormat())
+	newBootstrapData.SetValue(newMetadata)
+	taskRef, err := vms.setIgnitionMetadata(ctx, newBootstrapData)
+	if err != nil {
+		return false, errors.Wrapf(err, "unable to set metadata on vm %s", ctx)
+	}
+
+	ctx.VSphereVM.Status.TaskRef = taskRef
+	ctx.Logger.Info("wait for VM metadata to be updated")
+	return false, nil
+}
+
+
+
 func (vms *VMService) reconcilePowerState(ctx *virtualMachineContext) (bool, error) {
 	powerState, err := vms.getPowerState(ctx)
 	if err != nil {
@@ -347,9 +396,70 @@ func (vms *VMService) getMetadata(ctx *virtualMachineContext) (string, error) {
 	return string(metadataBuf), nil
 }
 
+func (vms *VMService) getMetadataIgnition(ctx *virtualMachineContext) (string, error) {
+	var (
+		obj mo.VirtualMachine
+
+		pc    = property.DefaultCollector(ctx.Session.Client.Client)
+		props = []string{"config.extraConfig"}
+	)
+
+	if err := pc.RetrieveOne(ctx, ctx.Ref, props, &obj); err != nil {
+		return "", errors.Wrapf(err, "unable to fetch props %v for vm %s", props, ctx)
+	}
+	if obj.Config == nil {
+		return "", nil
+	}
+
+	var metadataBase64 string
+	for _, ec := range obj.Config.ExtraConfig {
+		if optVal := ec.GetOptionValue(); optVal != nil {
+			// TODO(akutz) Using a switch instead of if in case we ever
+			//             want to check the metadata encoding as well.
+			//             Since the image stamped images always use
+			//             base64, it should be okay to not check.
+			// nolint
+			switch optVal.Key {
+			case ignitionKey:
+				if v, ok := optVal.Value.(string); ok {
+					metadataBase64 = v
+				}
+			}
+		}
+	}
+
+	if metadataBase64 == "" {
+		return "", nil
+	}
+
+	metadataBuf, err := base64.StdEncoding.DecodeString(metadataBase64)
+	if err != nil {
+		return "", errors.Wrapf(err, "unable to decode metadata for %s", ctx)
+	}
+
+	return string(metadataBuf), nil
+}
+
 func (vms *VMService) setMetadata(ctx *virtualMachineContext, metadata []byte) (string, error) {
 	var extraConfig extra.Config
 	if err := extraConfig.SetCloudInitMetadata(metadata); err != nil {
+		return "", errors.Wrapf(err, "unable to set metadata on vm %s", ctx)
+	}
+
+	task, err := ctx.Obj.Reconfigure(ctx, types.VirtualMachineConfigSpec{
+		ExtraConfig: extraConfig,
+	})
+	if err != nil {
+		return "", errors.Wrapf(err, "unable to set metadata on vm %s", ctx)
+	}
+
+	return task.Reference().Value, nil
+}
+
+
+func (vms *VMService) setIgnitionMetadata(ctx *virtualMachineContext, data bootstrap.VMBootstrapData) (string, error) {
+	var extraConfig extra.Config
+	if err := extraConfig.SetCloudInitUserData(data); err != nil {
 		return "", errors.Wrapf(err, "unable to set metadata on vm %s", ctx)
 	}
 
@@ -381,10 +491,23 @@ func (vms *VMService) getNetworkStatus(ctx *virtualMachineContext) ([]infrav1.Ne
 	return apiNetStatus, nil
 }
 
-func (vms *VMService) getBootstrapData(ctx *context.VMContext) ([]byte, error) {
+
+
+func convertStringToFormat(input string) bootstrap.Format {
+	switch input {
+	case string(bootstrap.CloudConfig), "":
+		return bootstrap.CloudConfig
+	case string(bootstrap.Ignition):
+		return bootstrap.Ignition
+	}
+	return bootstrap.CloudConfig
+}
+
+func (vms *VMService) getBootstrapData(ctx *context.VMContext) (bootstrap.VMBootstrapData, error) {
+	bootstrapData := bootstrap.VMBootstrapData{}
 	if ctx.VSphereVM.Spec.BootstrapRef == nil {
 		ctx.Logger.Info("VM has no bootstrap data")
-		return nil, nil
+		return bootstrapData, nil
 	}
 
 	secret := &corev1.Secret{}
@@ -393,13 +516,17 @@ func (vms *VMService) getBootstrapData(ctx *context.VMContext) ([]byte, error) {
 		Name:      ctx.VSphereVM.Spec.BootstrapRef.Name,
 	}
 	if err := ctx.Client.Get(ctx, secretKey, secret); err != nil {
-		return nil, errors.Wrapf(err, "failed to retrieve bootstrap data secret for %s", ctx)
+		return bootstrapData, errors.Wrapf(err, "failed to retrieve bootstrap data secret for %s", ctx)
 	}
 
 	value, ok := secret.Data["value"]
 	if !ok {
-		return nil, errors.New("error retrieving bootstrap data: secret value key is missing")
+		return bootstrapData, errors.New("error retrieving bootstrap data: secret value key is missing")
 	}
 
-	return value, nil
+	format := secret.Data["format"]
+	bootstrapData.SetFormat(convertStringToFormat(string(format)))
+	bootstrapData.SetValue(value)
+
+	return bootstrapData, nil
 }

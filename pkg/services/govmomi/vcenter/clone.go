@@ -27,6 +27,7 @@ import (
 	pbmTypes "github.com/vmware/govmomi/pbm/types"
 	"github.com/vmware/govmomi/vim25/mo"
 	"github.com/vmware/govmomi/vim25/types"
+	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/services/govmomi/bootstrap"
 
 	infrav1 "sigs.k8s.io/cluster-api-provider-vsphere/api/v1alpha3"
 	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/context"
@@ -41,7 +42,7 @@ const (
 
 // Clone kicks off a clone operation on vCenter to create a new virtual machine.
 // nolint:gocognit,gocyclo
-func Clone(ctx *context.VMContext, bootstrapData []byte) error {
+func Clone(ctx *context.VMContext, data bootstrap.VMBootstrapData) error {
 	ctx = &context.VMContext{
 		ControllerContext: ctx.ControllerContext,
 		VSphereVM:         ctx.VSphereVM,
@@ -49,12 +50,13 @@ func Clone(ctx *context.VMContext, bootstrapData []byte) error {
 		Logger:            ctx.Logger.WithName("vcenter"),
 		PatchHelper:       ctx.PatchHelper,
 	}
-	ctx.Logger.Info("starting clone process")
+	ctx.Logger.Info("starting clone process", "data", string(data.GetValue()),
+		"format", data.GetFormat())
 
 	var extraConfig extra.Config
-	if len(bootstrapData) > 0 {
-		ctx.Logger.Info("applied bootstrap data to VM clone spec")
-		if err := extraConfig.SetCloudInitUserData(bootstrapData); err != nil {
+	if len(data.GetValue()) > 0 {
+		ctx.Logger.V(0).Info("[watch] applied bootstrap data to VM clone spec")
+		if err := extraConfig.SetCloudInitUserData(data); err != nil {
 			return err
 		}
 	}
@@ -64,6 +66,8 @@ func Clone(ctx *context.VMContext, bootstrapData []byte) error {
 			return err
 		}
 	}
+
+	ctx.Logger.V(0).Info("[watch] got extraconfig", "extraconfig", extraConfig)
 
 	tpl, err := template.FindTemplate(ctx, ctx.VSphereVM.Spec.Template)
 	if err != nil {
