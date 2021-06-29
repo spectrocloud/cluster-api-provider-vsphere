@@ -25,17 +25,25 @@ import (
 	"strings"
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/cluster-api/util"
+
 	. "github.com/onsi/ginkgo"
 	"github.com/onsi/ginkgo/config"
 	"github.com/onsi/ginkgo/reporters"
 	. "github.com/onsi/gomega"
 
 	"k8s.io/apimachinery/pkg/runtime"
-	"sigs.k8s.io/cluster-api-provider-vsphere/api/v1alpha3"
+	"sigs.k8s.io/cluster-api-provider-vsphere/api/v1alpha4"
 	capi_e2e "sigs.k8s.io/cluster-api/test/e2e"
 	"sigs.k8s.io/cluster-api/test/framework"
 	"sigs.k8s.io/cluster-api/test/framework/bootstrap"
 	"sigs.k8s.io/cluster-api/test/framework/clusterctl"
+)
+
+const (
+	KubernetesVersion    = "KUBERNETES_VERSION"
+	VsphereStoragePolicy = "VSPHERE_STORAGE_POLICY"
 )
 
 // Test suite flags
@@ -68,6 +76,8 @@ var (
 
 	// bootstrapClusterProxy allows to interact with the bootstrap cluster to be used for the e2e tests.
 	bootstrapClusterProxy framework.ClusterProxy
+
+	namespaces map[*corev1.Namespace]context.CancelFunc
 )
 
 func init() {
@@ -113,7 +123,7 @@ var _ = SynchronizedBeforeSuite(func() []byte {
 
 	By("Initializing the bootstrap cluster")
 	initBootstrapCluster(bootstrapClusterProxy, e2eConfig, clusterctlConfigPath, artifactFolder)
-
+	namespaces = map[*corev1.Namespace]context.CancelFunc{}
 	return []byte(
 		strings.Join([]string{
 			artifactFolder,
@@ -153,7 +163,7 @@ var _ = SynchronizedAfterSuite(func() {
 func initScheme() *runtime.Scheme {
 	sc := runtime.NewScheme()
 	framework.TryAddDefaultSchemes(sc)
-	_ = v1alpha3.AddToScheme(sc)
+	_ = v1alpha4.AddToScheme(sc)
 	return sc
 }
 
@@ -161,6 +171,15 @@ func loadE2EConfig(configPath string) *clusterctl.E2EConfig {
 	config := clusterctl.LoadE2EConfig(context.TODO(), clusterctl.LoadE2EConfigInput{ConfigPath: configPath})
 	Expect(config).ToNot(BeNil(), "Failed to load E2E config from %s", configPath)
 	return config
+}
+
+// TODO: temporary until https://github.com/kubernetes-sigs/cluster-api/pull/3916 with GetVariable is integrated
+func getVariable(key string) string {
+	if val, ok := os.LookupEnv(key); ok {
+		return val
+	}
+
+	return e2eConfig.GetVariable(key)
 }
 
 func createClusterctlLocalRepository(config *clusterctl.E2EConfig, repositoryFolder string) string {
@@ -216,4 +235,39 @@ func tearDown(bootstrapClusterProvider bootstrap.ClusterProvider, bootstrapClust
 	if bootstrapClusterProvider != nil {
 		bootstrapClusterProvider.Dispose(context.TODO())
 	}
+}
+
+func setupSpecNamespace(specName string) *corev1.Namespace {
+	Byf("Creating a namespace for hosting the %q test spec", specName)
+	namespace, cancelWatches := framework.CreateNamespaceAndWatchEvents(ctx, framework.CreateNamespaceAndWatchEventsInput{
+		Creator:   bootstrapClusterProxy.GetClient(),
+		ClientSet: bootstrapClusterProxy.GetClientSet(),
+		Name:      fmt.Sprintf("%s-%s", specName, util.RandomString(6)),
+		LogFolder: filepath.Join(artifactFolder, "clusters", bootstrapClusterProxy.GetName()),
+	})
+
+	namespaces[namespace] = cancelWatches
+
+	return namespace
+}
+
+func cleanupSpecNamespace(namespace *corev1.Namespace) {
+	Byf("cleaning up namespace: %s", namespace.Name)
+	cancelWatches := namespaces[namespace]
+
+	if !skipCleanup {
+		framework.DeleteAllClustersAndWait(ctx, framework.DeleteAllClustersAndWaitInput{
+			Client:    bootstrapClusterProxy.GetClient(),
+			Namespace: namespace.Name,
+		}, e2eConfig.GetIntervals("", "wait-delete-cluster")...)
+
+		By("Deleting namespace used for hosting test spec")
+		framework.DeleteNamespace(ctx, framework.DeleteNamespaceInput{
+			Deleter: bootstrapClusterProxy.GetClient(),
+			Name:    namespace.Name,
+		})
+	}
+
+	cancelWatches()
+	delete(namespaces, namespace)
 }

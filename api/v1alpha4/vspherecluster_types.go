@@ -19,7 +19,7 @@ package v1alpha4
 import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha3"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
 )
 
 const (
@@ -62,6 +62,11 @@ type VSphereClusterSpec struct {
 	// DEPRECATED: will be removed in v1alpha4
 	// +optional
 	LoadBalancerRef *corev1.ObjectReference `json:"loadBalancerRef,omitempty"`
+
+	// IdentityRef is a reference to either a Secret or VSphereClusterIdentity that contains
+	// the identity to use when reconciling the cluster.
+	// +optional
+	IdentityRef *VSphereIdentityReference `json:"identityRef,omitempty"`
 }
 
 // VSphereClusterStatus defines the observed state of VSphereClusterSpec
@@ -72,6 +77,9 @@ type VSphereClusterStatus struct {
 	// Conditions defines current service state of the VSphereCluster.
 	// +optional
 	Conditions clusterv1.Conditions `json:"conditions,omitempty"`
+
+	// FailureDomains is a list of failure domain objects synced from the infrastructure provider.
+	FailureDomains clusterv1.FailureDomains `json:"failureDomains,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -88,12 +96,12 @@ type VSphereCluster struct {
 	Status VSphereClusterStatus `json:"status,omitempty"`
 }
 
-func (m *VSphereCluster) GetConditions() clusterv1.Conditions {
-	return m.Status.Conditions
+func (c *VSphereCluster) GetConditions() clusterv1.Conditions {
+	return c.Status.Conditions
 }
 
-func (m *VSphereCluster) SetConditions(conditions clusterv1.Conditions) {
-	m.Status.Conditions = conditions
+func (c *VSphereCluster) SetConditions(conditions clusterv1.Conditions) {
+	c.Status.Conditions = conditions
 }
 
 // +kubebuilder:object:root=true

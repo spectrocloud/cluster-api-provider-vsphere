@@ -18,7 +18,7 @@ package v1alpha4
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha3"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
 	"sigs.k8s.io/cluster-api/errors"
 )
 
@@ -37,6 +37,10 @@ type VSphereMachineSpec struct {
 	// vsphere://12345678-1234-1234-1234-123456789abc
 	// +optional
 	ProviderID *string `json:"providerID,omitempty"`
+
+	// FailureDomain is the failure domain unique identifier this Machine should be attached to, as defined in Cluster API.
+	// For this infrastructure provider, the name is equivalent to the name of the VSphereDeploymentZone.
+	FailureDomain *string `json:"failureDomain,omitempty"`
 }
 
 // VSphereMachineStatus defines the observed state of VSphereMachine

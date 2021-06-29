@@ -24,9 +24,6 @@ import (
 	"os"
 	"time"
 
-	"sigs.k8s.io/cluster-api-provider-vsphere/api/v1alpha3"
-	"sigs.k8s.io/cluster-api-provider-vsphere/api/v1alpha4"
-
 	"k8s.io/klog/v2"
 	"k8s.io/klog/v2/klogr"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
@@ -34,7 +31,9 @@ import (
 	ctrlmgr "sigs.k8s.io/controller-runtime/pkg/manager"
 	ctrlsig "sigs.k8s.io/controller-runtime/pkg/manager/signals"
 
+	"sigs.k8s.io/cluster-api-provider-vsphere/api/v1alpha4"
 	"sigs.k8s.io/cluster-api-provider-vsphere/controllers"
+	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/constants"
 	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/context"
 	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/manager"
 	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/version"
@@ -43,12 +42,14 @@ import (
 var (
 	setupLog = ctrllog.Log.WithName("entrypoint")
 
-	managerOpts             manager.Options
-	defaultProfilerAddr     = os.Getenv("PROFILER_ADDR")
-	defaultSyncPeriod       = manager.DefaultSyncPeriod
-	defaultLeaderElectionID = manager.DefaultLeaderElectionID
-	defaultPodName          = manager.DefaultPodName
-	defaultWebhookPort      = manager.DefaultWebhookServiceContainerPort
+	managerOpts              manager.Options
+	defaultProfilerAddr      = os.Getenv("PROFILER_ADDR")
+	defaultSyncPeriod        = manager.DefaultSyncPeriod
+	defaultLeaderElectionID  = manager.DefaultLeaderElectionID
+	defaultPodName           = manager.DefaultPodName
+	defaultWebhookPort       = manager.DefaultWebhookServiceContainerPort
+	defaultEnableKeepAlive   = constants.DefaultEnableKeepAlive
+	defaultKeepAliveDuration = constants.DefaultKeepAliveDuration
 )
 
 // nolint:gocognit
@@ -117,6 +118,15 @@ func main() {
 		"/etc/capv/credentials.yaml",
 		"path to CAPV's credentials file",
 	)
+	flag.BoolVar(&managerOpts.EnableKeepAlive,
+		"enable-keep-alive",
+		defaultEnableKeepAlive,
+		"feature to enable keep alive handler in vsphere sessions")
+
+	flag.DurationVar(&managerOpts.KeepAliveDuration,
+		"keep-alive-duration",
+		defaultKeepAliveDuration,
+		"idle time interval(minutes) in between send() requests in keepalive handler")
 
 	flag.Parse()
 
@@ -136,78 +146,49 @@ func main() {
 	// Create a function that adds all of the controllers and webhooks to the
 	// manager.
 	addToManager := func(ctx *context.ControllerManagerContext, mgr ctrlmgr.Manager) error {
-		if managerOpts.WebhookPort != 0 {
-			if err := (&v1alpha3.VSphereCluster{}).SetupWebhookWithManager(mgr); err != nil {
-				return err
-			}
-			if err := (&v1alpha3.VSphereClusterList{}).SetupWebhookWithManager(mgr); err != nil {
-				return err
-			}
-			if err := (&v1alpha4.VSphereCluster{}).SetupWebhookWithManager(mgr); err != nil {
-				return err
-			}
-			if err := (&v1alpha4.VSphereClusterList{}).SetupWebhookWithManager(mgr); err != nil {
-				return err
-			}
 
-			if err := (&v1alpha3.VSphereMachine{}).SetupWebhookWithManager(mgr); err != nil {
-				return err
-			}
-			if err := (&v1alpha3.VSphereMachineList{}).SetupWebhookWithManager(mgr); err != nil {
-				return err
-			}
-			if err := (&v1alpha4.VSphereMachine{}).SetupWebhookWithManager(mgr); err != nil {
-				return err
-			}
-			if err := (&v1alpha4.VSphereMachineList{}).SetupWebhookWithManager(mgr); err != nil {
-				return err
-			}
+		if err := (&v1alpha4.VSphereCluster{}).SetupWebhookWithManager(mgr); err != nil {
+			return err
+		}
+		if err := (&v1alpha4.VSphereClusterList{}).SetupWebhookWithManager(mgr); err != nil {
+			return err
+		}
 
-			if err := (&v1alpha3.VSphereMachineTemplate{}).SetupWebhookWithManager(mgr); err != nil {
-				return err
-			}
-			if err := (&v1alpha3.VSphereMachineTemplateList{}).SetupWebhookWithManager(mgr); err != nil {
-				return err
-			}
-			if err := (&v1alpha4.VSphereMachineTemplate{}).SetupWebhookWithManager(mgr); err != nil {
-				return err
-			}
-			if err := (&v1alpha4.VSphereMachineTemplateList{}).SetupWebhookWithManager(mgr); err != nil {
-				return err
-			}
+		if err := (&v1alpha4.VSphereMachine{}).SetupWebhookWithManager(mgr); err != nil {
+			return err
+		}
+		if err := (&v1alpha4.VSphereMachineList{}).SetupWebhookWithManager(mgr); err != nil {
+			return err
+		}
 
-			if err := (&v1alpha3.VSphereVM{}).SetupWebhookWithManager(mgr); err != nil {
-				return err
-			}
-			if err := (&v1alpha3.VSphereVMList{}).SetupWebhookWithManager(mgr); err != nil {
-				return err
-			}
-			if err := (&v1alpha4.VSphereVM{}).SetupWebhookWithManager(mgr); err != nil {
-				return err
-			}
-			if err := (&v1alpha4.VSphereVMList{}).SetupWebhookWithManager(mgr); err != nil {
-				return err
-			}
+		if err := (&v1alpha4.VSphereMachineTemplate{}).SetupWebhookWithManager(mgr); err != nil {
+			return err
+		}
+		if err := (&v1alpha4.VSphereMachineTemplateList{}).SetupWebhookWithManager(mgr); err != nil {
+			return err
+		}
 
-			if err := (&v1alpha3.HAProxyLoadBalancer{}).SetupWebhookWithManager(mgr); err != nil {
-				return err
-			}
-			if err := (&v1alpha3.HAProxyLoadBalancerList{}).SetupWebhookWithManager(mgr); err != nil {
-				return err
-			}
-		} else {
-			if err := controllers.AddClusterControllerToManager(ctx, mgr); err != nil {
-				return err
-			}
-			if err := controllers.AddMachineControllerToManager(ctx, mgr); err != nil {
-				return err
-			}
-			if err := controllers.AddVMControllerToManager(ctx, mgr); err != nil {
-				return err
-			}
-			if err := controllers.AddHAProxyLoadBalancerControllerToManager(ctx, mgr); err != nil {
-				return err
-			}
+		if err := (&v1alpha4.VSphereVM{}).SetupWebhookWithManager(mgr); err != nil {
+			return err
+		}
+		if err := (&v1alpha4.VSphereVMList{}).SetupWebhookWithManager(mgr); err != nil {
+			return err
+		}
+
+		if err := controllers.AddClusterControllerToManager(ctx, mgr); err != nil {
+			return err
+		}
+		if err := controllers.AddMachineControllerToManager(ctx, mgr); err != nil {
+			return err
+		}
+		if err := controllers.AddVMControllerToManager(ctx, mgr); err != nil {
+			return err
+		}
+		if err := controllers.AddHAProxyLoadBalancerControllerToManager(ctx, mgr); err != nil {
+			return err
+		}
+		if err := controllers.AddVsphereClusterIdentityControllerToManager(ctx, mgr); err != nil {
+			return err
 		}
 
 		return nil

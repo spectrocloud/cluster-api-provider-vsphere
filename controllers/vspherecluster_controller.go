@@ -17,6 +17,7 @@ limitations under the License.
 package controllers
 
 import (
+	goctx "context"
 	"fmt"
 	"reflect"
 	"strings"
@@ -30,14 +31,16 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
-	infrav1 "sigs.k8s.io/cluster-api-provider-vsphere/api/v1alpha3"
+	infrav1 "sigs.k8s.io/cluster-api-provider-vsphere/api/v1alpha4"
 	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/context"
+	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/identity"
 	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/record"
 	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/services/cloudprovider"
 	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/session"
 	infrautilv1 "sigs.k8s.io/cluster-api-provider-vsphere/pkg/util"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha3"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
 	clusterutilv1 "sigs.k8s.io/cluster-api/util"
+	"sigs.k8s.io/cluster-api/util/annotations"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/cluster-api/util/patch"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -58,7 +61,9 @@ var (
 	clusterControlledTypeGVK  = infrav1.GroupVersion.WithKind(clusterControlledTypeName)
 )
 
-// +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch;create;patch
+// +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch;create;patch;update
+// +kubebuilder:rbac:groups=core,resources=namespaces,verbs=get;list;watch
+// +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=vsphereclusteridentities,verbs=get;list;watch;delete
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=vsphereclusters,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=vsphereclusters/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters;clusters/status,verbs=get;list;watch
@@ -88,18 +93,14 @@ func AddClusterControllerToManager(ctx *context.ControllerManagerContext, mgr ma
 		// Watch the CAPI resource that owns this infrastructure resource.
 		Watches(
 			&source.Kind{Type: &clusterv1.Cluster{}},
-			&handler.EnqueueRequestsFromMapFunc{
-				ToRequests: clusterutilv1.ClusterToInfrastructureMapFunc(clusterControlledTypeGVK),
-			},
+			handler.EnqueueRequestsFromMapFunc(clusterutilv1.ClusterToInfrastructureMapFunc(clusterControlledTypeGVK)),
 		).
 		// Watch the infrastructure machine resources that belong to the control
 		// plane. This controller needs to reconcile the infrastructure cluster
 		// once a control plane machine has an IP address.
 		Watches(
 			&source.Kind{Type: &infrav1.VSphereMachine{}},
-			&handler.EnqueueRequestsFromMapFunc{
-				ToRequests: handler.ToRequestsFunc(reconciler.controlPlaneMachineToCluster),
-			},
+			handler.EnqueueRequestsFromMapFunc(reconciler.controlPlaneMachineToCluster),
 		).
 		// Watch the load balancer resource that may be used to provide HA to
 		// the VSphereCluster control plane.
@@ -109,9 +110,7 @@ func AddClusterControllerToManager(ctx *context.ControllerManagerContext, mgr ma
 		//             for an example of external watchers.
 		Watches(
 			&source.Kind{Type: &infrav1.HAProxyLoadBalancer{}},
-			&handler.EnqueueRequestsFromMapFunc{
-				ToRequests: handler.ToRequestsFunc(reconciler.loadBalancerToCluster),
-			},
+			handler.EnqueueRequestsFromMapFunc(reconciler.loadBalancerToCluster),
 		).
 		// Watch a GenericEvent channel for the controlled resource.
 		//
@@ -131,7 +130,7 @@ type clusterReconciler struct {
 }
 
 // Reconcile ensures the back-end state reflects the Kubernetes resource state intent.
-func (r clusterReconciler) Reconcile(req ctrl.Request) (_ ctrl.Result, reterr error) {
+func (r clusterReconciler) Reconcile(ctx goctx.Context, req ctrl.Request) (_ ctrl.Result, reterr error) {
 
 	// Get the VSphereCluster resource for this request.
 	vsphereCluster := &infrav1.VSphereCluster{}
@@ -152,7 +151,7 @@ func (r clusterReconciler) Reconcile(req ctrl.Request) (_ ctrl.Result, reterr er
 		r.Logger.Info("Waiting for Cluster Controller to set OwnerRef on VSphereCluster")
 		return reconcile.Result{}, nil
 	}
-	if clusterutilv1.IsPaused(cluster, vsphereCluster) {
+	if annotations.IsPaused(cluster, vsphereCluster) {
 		r.Logger.V(4).Info("VSphereCluster %s/%s linked to a cluster that is paused",
 			vsphereCluster.Namespace, vsphereCluster.Name)
 		return reconcile.Result{}, nil
@@ -240,6 +239,31 @@ func (r clusterReconciler) reconcileDelete(ctx *context.ClusterContext) (reconci
 	}
 	conditions.MarkFalse(ctx.VSphereCluster, infrav1.LoadBalancerAvailableCondition, clusterv1.DeletedReason, clusterv1.ConditionSeverityInfo, "")
 
+	// Remove finalizer on Identity Secret
+	if identity.IsSecretIdentity(ctx.VSphereCluster) {
+		secret := &apiv1.Secret{}
+		secretKey := client.ObjectKey{
+			Namespace: ctx.VSphereCluster.Namespace,
+			Name:      ctx.VSphereCluster.Spec.IdentityRef.Name,
+		}
+		err := ctx.Client.Get(ctx, secretKey, secret)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				ctrlutil.RemoveFinalizer(ctx.VSphereCluster, infrav1.ClusterFinalizer)
+				return reconcile.Result{}, nil
+			}
+			return reconcile.Result{}, err
+		}
+		r.Logger.Info(fmt.Sprintf("Removing finalizer form Secret %s/%s", secret.Namespace, secret.Name))
+		ctrlutil.RemoveFinalizer(secret, infrav1.SecretIdentitySetFinalizer)
+		if err := ctx.Client.Update(ctx, secret); err != nil {
+			return reconcile.Result{}, err
+		}
+		if err := ctx.Client.Delete(ctx, secret); err != nil {
+			return reconcile.Result{}, err
+		}
+	}
+
 	// Cluster is deleted so remove the finalizer.
 	ctrlutil.RemoveFinalizer(ctx.VSphereCluster, infrav1.ClusterFinalizer)
 
@@ -251,6 +275,11 @@ func (r clusterReconciler) reconcileNormal(ctx *context.ClusterContext) (reconci
 
 	// If the VSphereCluster doesn't have our finalizer, add it.
 	ctrlutil.AddFinalizer(ctx.VSphereCluster, infrav1.ClusterFinalizer)
+
+	if err := r.reconcileIdentitySecret(ctx); err != nil {
+		conditions.MarkFalse(ctx.VSphereCluster, infrav1.VCenterAvailableCondition, infrav1.VCenterUnreachableReason, clusterv1.ConditionSeverityError, err.Error())
+		return reconcile.Result{}, err
+	}
 
 	if cloudProviderConfigurationAvailable(ctx) {
 		if err := r.reconcileVCenterConnectivity(ctx); err != nil {
@@ -334,9 +363,69 @@ func cloudProviderConfigurationAvailable(ctx *context.ClusterContext) bool {
 	return !reflect.DeepEqual(ctx.VSphereCluster.Spec.CloudProviderConfiguration, infrav1.CPIConfig{})
 }
 
+func (r clusterReconciler) reconcileIdentitySecret(ctx *context.ClusterContext) error {
+	vsphereCluster := ctx.VSphereCluster
+	if identity.IsSecretIdentity(vsphereCluster) {
+		secret := &apiv1.Secret{}
+		secretKey := client.ObjectKey{
+			Namespace: vsphereCluster.Namespace,
+			Name:      vsphereCluster.Spec.IdentityRef.Name,
+		}
+		err := ctx.Client.Get(ctx, secretKey, secret)
+		if err != nil {
+			return err
+		}
+
+		// check if cluster is already an owner
+		if !clusterutilv1.IsOwnedByObject(secret, vsphereCluster) {
+			if len(secret.GetOwnerReferences()) > 0 {
+				return fmt.Errorf("another cluster has set the OwnerRef for secret: %s/%s", secret.Namespace, secret.Name)
+			}
+
+			secret.SetOwnerReferences([]metav1.OwnerReference{{
+				APIVersion: infrav1.GroupVersion.String(),
+				Kind:       vsphereCluster.Kind,
+				Name:       vsphereCluster.Name,
+				UID:        vsphereCluster.UID,
+			}})
+		}
+
+		if !ctrlutil.ContainsFinalizer(secret, infrav1.SecretIdentitySetFinalizer) {
+			ctrlutil.AddFinalizer(secret, infrav1.SecretIdentitySetFinalizer)
+		}
+		err = r.Client.Update(ctx, secret)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (r clusterReconciler) reconcileVCenterConnectivity(ctx *context.ClusterContext) error {
-	_, err := session.GetOrCreate(ctx, ctx.VSphereCluster.Spec.Server,
-		ctx.VSphereCluster.Spec.CloudProviderConfiguration.Workspace.Datacenter, ctx.Username, ctx.Password, ctx.VSphereCluster.Spec.Thumbprint)
+	params := session.NewParams().
+		WithServer(ctx.VSphereCluster.Spec.Server).
+		WithDatacenter(ctx.VSphereCluster.Spec.CloudProviderConfiguration.Workspace.Datacenter).
+		WithThumbprint(ctx.VSphereCluster.Spec.Thumbprint).
+		WithFeatures(session.Feature{
+			EnableKeepAlive:   r.EnableKeepAlive,
+			KeepAliveDuration: r.KeepAliveDuration,
+		})
+
+	if ctx.VSphereCluster.Spec.IdentityRef != nil {
+		creds, err := identity.GetCredentials(ctx, r.Client, ctx.VSphereCluster, r.Namespace)
+		if err != nil {
+			return err
+		}
+
+		params = params.WithUserInfo(creds.Username, creds.Password)
+		_, err = session.GetOrCreate(ctx, params)
+		return err
+	}
+
+	params = params.WithUserInfo(ctx.Username, ctx.Password)
+	_, err := session.GetOrCreate(ctx,
+		params)
 	return err
 }
 
@@ -490,7 +579,7 @@ var (
 )
 
 func (r clusterReconciler) reconcileVSphereClusterWhenAPIServerIsOnline(ctx *context.ClusterContext) {
-	if ctx.Cluster.Status.ControlPlaneInitialized {
+	if conditions.IsTrue(ctx.Cluster, clusterv1.ControlPlaneInitializedCondition) {
 		ctx.Logger.Info("skipping reconcile when API server is online",
 			"reason", "controlPlaneInitialized")
 		return
@@ -511,7 +600,6 @@ func (r clusterReconciler) reconcileVSphereClusterWhenAPIServerIsOnline(ctx *con
 		ctx.Logger.Info("triggering GenericEvent", "reason", "api-server-online")
 		eventChannel := ctx.GetGenericEventChannelFor(ctx.VSphereCluster.GetObjectKind().GroupVersionKind())
 		eventChannel <- event.GenericEvent{
-			Meta:   ctx.VSphereCluster,
 			Object: ctx.VSphereCluster,
 		}
 
@@ -529,7 +617,7 @@ func (r clusterReconciler) reconcileVSphereClusterWhenAPIServerIsOnline(ctx *con
 
 func (r clusterReconciler) isAPIServerOnline(ctx *context.ClusterContext) bool {
 	if kubeClient, err := infrautilv1.NewKubeClient(ctx, ctx.Client, ctx.Cluster); err == nil {
-		if _, err := kubeClient.CoreV1().Nodes().List(metav1.ListOptions{}); err == nil {
+		if _, err := kubeClient.CoreV1().Nodes().List(ctx, metav1.ListOptions{}); err == nil {
 			// The target cluster is online. To make sure the correct control
 			// plane endpoint information is logged, it is necessary to fetch
 			// an up-to-date Cluster resource. If this fails, then set the
@@ -564,7 +652,7 @@ func (r clusterReconciler) isControlPlaneInitialized(ctx *context.ClusterContext
 		ctx.Logger.Info("exiting early because cluster no longer exists")
 		return true
 	}
-	return cluster.Status.ControlPlaneInitialized
+	return conditions.IsTrue(ctx.Cluster, clusterv1.ControlPlaneInitializedCondition)
 }
 
 func (r clusterReconciler) reconcileCloudProvider(ctx *context.ClusterContext) error {
@@ -592,7 +680,7 @@ func (r clusterReconciler) reconcileCloudProvider(ctx *context.ClusterContext) e
 	}
 
 	serviceAccount := cloudprovider.CloudControllerManagerServiceAccount()
-	if _, err := targetClusterClient.CoreV1().ServiceAccounts(serviceAccount.Namespace).Create(serviceAccount); err != nil && !apierrors.IsAlreadyExists(err) {
+	if _, err := targetClusterClient.CoreV1().ServiceAccounts(serviceAccount.Namespace).Create(ctx, serviceAccount, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
 		return err
 	}
 
@@ -602,32 +690,32 @@ func (r clusterReconciler) reconcileCloudProvider(ctx *context.ClusterContext) e
 	}
 
 	cloudConfigMap := cloudprovider.CloudControllerManagerConfigMap(string(cloudConfigData))
-	if _, err := targetClusterClient.CoreV1().ConfigMaps(cloudConfigMap.Namespace).Create(cloudConfigMap); err != nil && !apierrors.IsAlreadyExists(err) {
+	if _, err := targetClusterClient.CoreV1().ConfigMaps(cloudConfigMap.Namespace).Create(ctx, cloudConfigMap, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
 		return err
 	}
 
 	daemonSet := cloudprovider.CloudControllerManagerDaemonSet(controllerImage, cloudproviderConfig.MarshalCloudProviderArgs())
-	if _, err := targetClusterClient.AppsV1().DaemonSets(daemonSet.Namespace).Create(daemonSet); err != nil && !apierrors.IsAlreadyExists(err) {
+	if _, err := targetClusterClient.AppsV1().DaemonSets(daemonSet.Namespace).Create(ctx, daemonSet, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
 		return err
 	}
 
 	service := cloudprovider.CloudControllerManagerService()
-	if _, err := targetClusterClient.CoreV1().Services(daemonSet.Namespace).Create(service); err != nil && !apierrors.IsAlreadyExists(err) {
+	if _, err := targetClusterClient.CoreV1().Services(daemonSet.Namespace).Create(ctx, service, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
 		return err
 	}
 
 	clusterRole := cloudprovider.CloudControllerManagerClusterRole()
-	if _, err := targetClusterClient.RbacV1().ClusterRoles().Create(clusterRole); err != nil && !apierrors.IsAlreadyExists(err) {
+	if _, err := targetClusterClient.RbacV1().ClusterRoles().Create(ctx, clusterRole, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
 		return err
 	}
 
 	clusterRoleBinding := cloudprovider.CloudControllerManagerClusterRoleBinding()
-	if _, err := targetClusterClient.RbacV1().ClusterRoleBindings().Create(clusterRoleBinding); err != nil && !apierrors.IsAlreadyExists(err) {
+	if _, err := targetClusterClient.RbacV1().ClusterRoleBindings().Create(ctx, clusterRoleBinding, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
 		return err
 	}
 
 	roleBinding := cloudprovider.CloudControllerManagerRoleBinding()
-	if _, err := targetClusterClient.RbacV1().RoleBindings(roleBinding.Namespace).Create(roleBinding); err != nil && !apierrors.IsAlreadyExists(err) {
+	if _, err := targetClusterClient.RbacV1().RoleBindings(roleBinding.Namespace).Create(ctx, roleBinding, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
 		return err
 	}
 
@@ -686,22 +774,22 @@ func (r clusterReconciler) reconcileStorageProvider(ctx *context.ClusterContext)
 	}
 
 	serviceAccount := cloudprovider.CSIControllerServiceAccount()
-	if _, err := targetClusterClient.CoreV1().ServiceAccounts(serviceAccount.Namespace).Create(serviceAccount); err != nil && !apierrors.IsAlreadyExists(err) {
+	if _, err := targetClusterClient.CoreV1().ServiceAccounts(serviceAccount.Namespace).Create(ctx, serviceAccount, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
 		return err
 	}
 
 	configMap := cloudprovider.CSIFeatureStatesConfigMap()
-	if _, err := targetClusterClient.CoreV1().ConfigMaps(configMap.Namespace).Create(configMap); err != nil && !apierrors.IsAlreadyExists(err) {
+	if _, err := targetClusterClient.CoreV1().ConfigMaps(configMap.Namespace).Create(ctx, configMap, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
 		return err
 	}
 
 	clusterRole := cloudprovider.CSIControllerClusterRole()
-	if _, err := targetClusterClient.RbacV1().ClusterRoles().Create(clusterRole); err != nil && !apierrors.IsAlreadyExists(err) {
+	if _, err := targetClusterClient.RbacV1().ClusterRoles().Create(ctx, clusterRole, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
 		return err
 	}
 
 	clusterRoleBinding := cloudprovider.CSIControllerClusterRoleBinding()
-	if _, err := targetClusterClient.RbacV1().ClusterRoleBindings().Create(clusterRoleBinding); err != nil && !apierrors.IsAlreadyExists(err) {
+	if _, err := targetClusterClient.RbacV1().ClusterRoleBindings().Create(ctx, clusterRoleBinding, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
 		return err
 	}
 
@@ -713,22 +801,22 @@ func (r clusterReconciler) reconcileStorageProvider(ctx *context.ClusterContext)
 	}
 
 	cloudConfigSecret := cloudprovider.CSICloudConfigSecret(string(cloudConfig))
-	if _, err := targetClusterClient.CoreV1().Secrets(cloudConfigSecret.Namespace).Create(cloudConfigSecret); err != nil && !apierrors.IsAlreadyExists(err) {
+	if _, err := targetClusterClient.CoreV1().Secrets(cloudConfigSecret.Namespace).Create(ctx, cloudConfigSecret, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
 		return err
 	}
 
 	csiDriver := cloudprovider.CSIDriver()
-	if _, err := targetClusterClient.StorageV1beta1().CSIDrivers().Create(csiDriver); err != nil && !apierrors.IsAlreadyExists(err) {
+	if _, err := targetClusterClient.StorageV1beta1().CSIDrivers().Create(ctx, csiDriver, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
 		return err
 	}
 
 	daemonSet := cloudprovider.VSphereCSINodeDaemonSet(ctx.VSphereCluster.Spec.CloudProviderConfiguration.ProviderConfig.Storage)
-	if _, err := targetClusterClient.AppsV1().DaemonSets(daemonSet.Namespace).Create(daemonSet); err != nil && !apierrors.IsAlreadyExists(err) {
+	if _, err := targetClusterClient.AppsV1().DaemonSets(daemonSet.Namespace).Create(ctx, daemonSet, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
 		return err
 	}
 
 	// check if CSI is already deployed
-	_, err = targetClusterClient.AppsV1().StatefulSets(cloudprovider.CSINamespace).Get(cloudprovider.CSIControllerName, metav1.GetOptions{})
+	_, err = targetClusterClient.AppsV1().StatefulSets(cloudprovider.CSINamespace).Get(ctx, cloudprovider.CSIControllerName, metav1.GetOptions{})
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
 			return err
@@ -737,7 +825,7 @@ func (r clusterReconciler) reconcileStorageProvider(ctx *context.ClusterContext)
 	// this is a new cluster deploy the latest csi
 	if apierrors.IsNotFound(err) {
 		deployment := cloudprovider.CSIControllerDeployment(ctx.VSphereCluster.Spec.CloudProviderConfiguration.ProviderConfig.Storage)
-		if _, err := targetClusterClient.AppsV1().Deployments(deployment.Namespace).Create(deployment); err != nil && !apierrors.IsAlreadyExists(err) {
+		if _, err := targetClusterClient.AppsV1().Deployments(deployment.Namespace).Create(ctx, deployment, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
 			return err
 		}
 	}
@@ -775,7 +863,7 @@ func (r clusterReconciler) reconcileCloudConfigSecret(ctx *context.ClusterContex
 		Type:       apiv1.SecretTypeOpaque,
 		StringData: credentials,
 	}
-	if _, err := targetClusterClient.CoreV1().Secrets(secret.Namespace).Create(secret); err != nil {
+	if _, err := targetClusterClient.CoreV1().Secrets(secret.Namespace).Create(ctx, secret, metav1.CreateOptions{}); err != nil {
 		if apierrors.IsAlreadyExists(err) {
 			return nil
 		}
@@ -797,10 +885,10 @@ func (r clusterReconciler) reconcileCloudConfigSecret(ctx *context.ClusterContex
 // controlPlaneMachineToCluster is a handler.ToRequestsFunc to be used
 // to enqueue requests for reconciliation for VSphereCluster to update
 // its status.apiEndpoints field.
-func (r clusterReconciler) controlPlaneMachineToCluster(o handler.MapObject) []ctrl.Request {
-	vsphereMachine, ok := o.Object.(*infrav1.VSphereMachine)
+func (r clusterReconciler) controlPlaneMachineToCluster(o client.Object) []ctrl.Request {
+	vsphereMachine, ok := o.(*infrav1.VSphereMachine)
 	if !ok {
-		r.Logger.Error(nil, fmt.Sprintf("expected a VSphereMachine but got a %T", o.Object))
+		r.Logger.Error(nil, fmt.Sprintf("expected a VSphereMachine but got a %T", o))
 		return nil
 	}
 	if !infrautilv1.IsControlPlaneMachine(vsphereMachine) {
@@ -827,7 +915,7 @@ func (r clusterReconciler) controlPlaneMachineToCluster(o handler.MapObject) []c
 		return nil
 	}
 
-	if cluster.Status.ControlPlaneInitialized {
+	if conditions.IsTrue(cluster, clusterv1.ControlPlaneInitializedCondition) {
 		return nil
 	}
 
@@ -862,10 +950,10 @@ func (r clusterReconciler) controlPlaneMachineToCluster(o handler.MapObject) []c
 // loadBalancerToCluster is a handler.ToRequestsFunc that triggers
 // reconcile events for a VSphereCluster resource when a load balancer
 // resource is reconciled.
-func (r clusterReconciler) loadBalancerToCluster(o handler.MapObject) []ctrl.Request {
-	obj, ok := o.Object.(metav1.Object)
+func (r clusterReconciler) loadBalancerToCluster(o client.Object) []ctrl.Request {
+	obj, ok := o.(metav1.Object)
 	if !ok {
-		r.Logger.Error(nil, fmt.Sprintf("expected an metav1.Object but got a %T", o.Object))
+		r.Logger.Error(nil, fmt.Sprintf("expected an metav1.Object but got a %T", o))
 		return nil
 	}
 

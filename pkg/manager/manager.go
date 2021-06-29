@@ -23,13 +23,9 @@ import (
 
 	"github.com/pkg/errors"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/rest"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha3"
-	bootstrapv1 "sigs.k8s.io/cluster-api/bootstrap/kubeadm/api/v1alpha3"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
+	bootstrapv1 "sigs.k8s.io/cluster-api/bootstrap/kubeadm/api/v1alpha4"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/cache"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	ctrlmgr "sigs.k8s.io/controller-runtime/pkg/manager"
 
 	infrav1a3 "sigs.k8s.io/cluster-api-provider-vsphere/api/v1alpha3"
 	infrav1a4 "sigs.k8s.io/cluster-api-provider-vsphere/api/v1alpha4"
@@ -39,7 +35,7 @@ import (
 
 // Manager is a CAPV controller manager.
 type Manager interface {
-	ctrlmgr.Manager
+	ctrl.Manager
 
 	// GetContext returns the controller manager's context.
 	GetContext() *context.ControllerManagerContext
@@ -64,7 +60,7 @@ func New(opts Options) (Manager, error) {
 	}
 
 	// Build the controller manager.
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+	mgr, err := ctrl.NewManager(opts.KubeConfig, ctrl.Options{
 		Scheme:                  opts.Scheme,
 		MetricsBindAddress:      opts.MetricsAddr,
 		LeaderElection:          opts.LeaderElectionEnabled,
@@ -73,9 +69,9 @@ func New(opts Options) (Manager, error) {
 		SyncPeriod:              &opts.SyncPeriod,
 		Namespace:               opts.WatchNamespace,
 		NewCache:                opts.NewCache,
-		NewClient:               newClientFunc,
 		Port:                    opts.WebhookPort,
 		HealthProbeBindAddress:  opts.HealthAddr,
+		CertDir:                 opts.CertDir,
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to create manager")
@@ -84,7 +80,8 @@ func New(opts Options) (Manager, error) {
 	// Build the controller manager context.
 	controllerManagerContext := &context.ControllerManagerContext{
 		Context:                 goctx.Background(),
-		Namespace:               opts.WatchNamespace,
+		WatchNamespace:          opts.WatchNamespace,
+		Namespace:               opts.PodNamespace,
 		Name:                    opts.PodName,
 		LeaderElectionID:        opts.LeaderElectionID,
 		LeaderElectionNamespace: opts.LeaderElectionNamespace,
@@ -95,6 +92,8 @@ func New(opts Options) (Manager, error) {
 		Scheme:                  opts.Scheme,
 		Username:                opts.Username,
 		Password:                opts.Password,
+		EnableKeepAlive:         opts.EnableKeepAlive,
+		KeepAliveDuration:       opts.KeepAliveDuration,
 	}
 
 	// Add the requested items to the manager.
@@ -111,27 +110,10 @@ func New(opts Options) (Manager, error) {
 }
 
 type manager struct {
-	ctrlmgr.Manager
+	ctrl.Manager
 	ctx *context.ControllerManagerContext
 }
 
 func (m *manager) GetContext() *context.ControllerManagerContext {
 	return m.ctx
-}
-
-// newClientFunc returns a client reads from cache and write directly to the server
-// this avoid get unstructured object directly from the server
-// see issue: https://github.com/kubernetes-sigs/cluster-api/issues/1663
-func newClientFunc(cache cache.Cache, config *rest.Config, options client.Options) (client.Client, error) {
-	// Create the Client for Write operations.
-	c, err := client.New(config, options)
-	if err != nil {
-		return nil, err
-	}
-
-	return &client.DelegatingClient{
-		Reader:       cache,
-		Writer:       c,
-		StatusClient: c,
-	}, nil
 }

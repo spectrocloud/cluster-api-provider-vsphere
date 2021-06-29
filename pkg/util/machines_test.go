@@ -20,23 +20,23 @@ import (
 	"testing"
 
 	"github.com/onsi/gomega"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha3"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
 
-	"sigs.k8s.io/cluster-api-provider-vsphere/api/v1alpha3"
+	infrav1 "sigs.k8s.io/cluster-api-provider-vsphere/api/v1alpha4"
 	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/util"
 )
 
 func Test_GetMachinePreferredIPAddress(t *testing.T) {
 	testCases := []struct {
 		name        string
-		machine     *v1alpha3.VSphereMachine
+		machine     *infrav1.VSphereMachine
 		ipAddr      string
 		expectedErr error
 	}{
 		{
 			name: "single IPv4 address, no preferred CIDR",
-			machine: &v1alpha3.VSphereMachine{
-				Status: v1alpha3.VSphereMachineStatus{
+			machine: &infrav1.VSphereMachine{
+				Status: infrav1.VSphereMachineStatus{
 					Addresses: []clusterv1.MachineAddress{
 						{
 							Type:    clusterv1.MachineExternalIP,
@@ -50,8 +50,8 @@ func Test_GetMachinePreferredIPAddress(t *testing.T) {
 		},
 		{
 			name: "single IPv6 address, no preferred CIDR",
-			machine: &v1alpha3.VSphereMachine{
-				Status: v1alpha3.VSphereMachineStatus{
+			machine: &infrav1.VSphereMachine{
+				Status: infrav1.VSphereMachineStatus{
 					Addresses: []clusterv1.MachineAddress{
 						{
 							Type:    clusterv1.MachineExternalIP,
@@ -65,8 +65,8 @@ func Test_GetMachinePreferredIPAddress(t *testing.T) {
 		},
 		{
 			name: "multiple IPv4 addresses, only 1 internal, no preferred CIDR",
-			machine: &v1alpha3.VSphereMachine{
-				Status: v1alpha3.VSphereMachineStatus{
+			machine: &infrav1.VSphereMachine{
+				Status: infrav1.VSphereMachineStatus{
 					Addresses: []clusterv1.MachineAddress{
 						{
 							Type:    clusterv1.MachineExternalIP,
@@ -88,15 +88,15 @@ func Test_GetMachinePreferredIPAddress(t *testing.T) {
 		},
 		{
 			name: "multiple IPv4 addresses, preferred CIDR set to v4",
-			machine: &v1alpha3.VSphereMachine{
-				Spec: v1alpha3.VSphereMachineSpec{
-					VirtualMachineCloneSpec: v1alpha3.VirtualMachineCloneSpec{
-						Network: v1alpha3.NetworkSpec{
+			machine: &infrav1.VSphereMachine{
+				Spec: infrav1.VSphereMachineSpec{
+					VirtualMachineCloneSpec: infrav1.VirtualMachineCloneSpec{
+						Network: infrav1.NetworkSpec{
 							PreferredAPIServerCIDR: "192.168.0.0/16",
 						},
 					},
 				},
-				Status: v1alpha3.VSphereMachineStatus{
+				Status: infrav1.VSphereMachineStatus{
 					Addresses: []clusterv1.MachineAddress{
 						{
 							Type:    clusterv1.MachineExternalIP,
@@ -114,15 +114,15 @@ func Test_GetMachinePreferredIPAddress(t *testing.T) {
 		},
 		{
 			name: "multiple IPv4 and IPv6 addresses, preferred CIDR set to v4",
-			machine: &v1alpha3.VSphereMachine{
-				Spec: v1alpha3.VSphereMachineSpec{
-					VirtualMachineCloneSpec: v1alpha3.VirtualMachineCloneSpec{
-						Network: v1alpha3.NetworkSpec{
+			machine: &infrav1.VSphereMachine{
+				Spec: infrav1.VSphereMachineSpec{
+					VirtualMachineCloneSpec: infrav1.VirtualMachineCloneSpec{
+						Network: infrav1.NetworkSpec{
 							PreferredAPIServerCIDR: "192.168.0.0/16",
 						},
 					},
 				},
-				Status: v1alpha3.VSphereMachineStatus{
+				Status: infrav1.VSphereMachineStatus{
 					Addresses: []clusterv1.MachineAddress{
 						{
 							Type:    clusterv1.MachineExternalIP,
@@ -140,15 +140,15 @@ func Test_GetMachinePreferredIPAddress(t *testing.T) {
 		},
 		{
 			name: "multiple IPv4 and IPv6 addresses, preferred CIDR set to v6",
-			machine: &v1alpha3.VSphereMachine{
-				Spec: v1alpha3.VSphereMachineSpec{
-					VirtualMachineCloneSpec: v1alpha3.VirtualMachineCloneSpec{
-						Network: v1alpha3.NetworkSpec{
+			machine: &infrav1.VSphereMachine{
+				Spec: infrav1.VSphereMachineSpec{
+					VirtualMachineCloneSpec: infrav1.VirtualMachineCloneSpec{
+						Network: infrav1.NetworkSpec{
 							PreferredAPIServerCIDR: "fdf3:35b5:9dad:6e09::/64",
 						},
 					},
 				},
-				Status: v1alpha3.VSphereMachineStatus{
+				Status: infrav1.VSphereMachineStatus{
 
 					Addresses: []clusterv1.MachineAddress{
 						{
@@ -167,15 +167,15 @@ func Test_GetMachinePreferredIPAddress(t *testing.T) {
 		},
 		{
 			name: "no addresses found",
-			machine: &v1alpha3.VSphereMachine{
-				Spec: v1alpha3.VSphereMachineSpec{
-					VirtualMachineCloneSpec: v1alpha3.VirtualMachineCloneSpec{
-						Network: v1alpha3.NetworkSpec{
+			machine: &infrav1.VSphereMachine{
+				Spec: infrav1.VSphereMachineSpec{
+					VirtualMachineCloneSpec: infrav1.VirtualMachineCloneSpec{
+						Network: infrav1.NetworkSpec{
 							PreferredAPIServerCIDR: "fdf3:35b5:9dad:6e09::/64",
 						},
 					},
 				},
-				Status: v1alpha3.VSphereMachineStatus{
+				Status: infrav1.VSphereMachineStatus{
 					Addresses: []clusterv1.MachineAddress{},
 				},
 			},
@@ -184,15 +184,15 @@ func Test_GetMachinePreferredIPAddress(t *testing.T) {
 		},
 		{
 			name: "no addresses found with preferred CIDR",
-			machine: &v1alpha3.VSphereMachine{
-				Spec: v1alpha3.VSphereMachineSpec{
-					VirtualMachineCloneSpec: v1alpha3.VirtualMachineCloneSpec{
-						Network: v1alpha3.NetworkSpec{
+			machine: &infrav1.VSphereMachine{
+				Spec: infrav1.VSphereMachineSpec{
+					VirtualMachineCloneSpec: infrav1.VirtualMachineCloneSpec{
+						Network: infrav1.NetworkSpec{
 							PreferredAPIServerCIDR: "192.168.0.0/16",
 						},
 					},
 				},
-				Status: v1alpha3.VSphereMachineStatus{
+				Status: infrav1.VSphereMachineStatus{
 
 					Addresses: []clusterv1.MachineAddress{
 						{
@@ -228,17 +228,18 @@ func Test_GetMachinePreferredIPAddress(t *testing.T) {
 
 func Test_GetMachineMetadata(t *testing.T) {
 	testCases := []struct {
-		name     string
-		machine  *v1alpha3.VSphereVM
-		expected string
+		name            string
+		machine         *infrav1.VSphereVM
+		networkStatuses []infrav1.NetworkStatus
+		expected        string
 	}{
 		{
 			name: "dhcp4",
-			machine: &v1alpha3.VSphereVM{
-				Spec: v1alpha3.VSphereVMSpec{
-					VirtualMachineCloneSpec: v1alpha3.VirtualMachineCloneSpec{
-						Network: v1alpha3.NetworkSpec{
-							Devices: []v1alpha3.NetworkDeviceSpec{
+			machine: &infrav1.VSphereVM{
+				Spec: infrav1.VSphereVMSpec{
+					VirtualMachineCloneSpec: infrav1.VirtualMachineCloneSpec{
+						Network: infrav1.NetworkSpec{
+							Devices: []infrav1.NetworkDeviceSpec{
 								{
 									NetworkName: "network1",
 									MACAddr:     "00:00:00:00:00",
@@ -269,11 +270,11 @@ network:
 		},
 		{
 			name: "dhcp4+deviceName",
-			machine: &v1alpha3.VSphereVM{
-				Spec: v1alpha3.VSphereVMSpec{
-					VirtualMachineCloneSpec: v1alpha3.VirtualMachineCloneSpec{
-						Network: v1alpha3.NetworkSpec{
-							Devices: []v1alpha3.NetworkDeviceSpec{
+			machine: &infrav1.VSphereVM{
+				Spec: infrav1.VSphereVMSpec{
+					VirtualMachineCloneSpec: infrav1.VirtualMachineCloneSpec{
+						Network: infrav1.NetworkSpec{
+							Devices: []infrav1.NetworkDeviceSpec{
 								{
 									NetworkName: "network1",
 									MACAddr:     "00:00:00:00:00",
@@ -305,11 +306,11 @@ network:
 		},
 		{
 			name: "dhcp6",
-			machine: &v1alpha3.VSphereVM{
-				Spec: v1alpha3.VSphereVMSpec{
-					VirtualMachineCloneSpec: v1alpha3.VirtualMachineCloneSpec{
-						Network: v1alpha3.NetworkSpec{
-							Devices: []v1alpha3.NetworkDeviceSpec{
+			machine: &infrav1.VSphereVM{
+				Spec: infrav1.VSphereVMSpec{
+					VirtualMachineCloneSpec: infrav1.VirtualMachineCloneSpec{
+						Network: infrav1.NetworkSpec{
+							Devices: []infrav1.NetworkDeviceSpec{
 								{
 									NetworkName: "network1",
 									MACAddr:     "00:00:00:00:00",
@@ -340,11 +341,11 @@ network:
 		},
 		{
 			name: "dhcp4+dhcp6",
-			machine: &v1alpha3.VSphereVM{
-				Spec: v1alpha3.VSphereVMSpec{
-					VirtualMachineCloneSpec: v1alpha3.VirtualMachineCloneSpec{
-						Network: v1alpha3.NetworkSpec{
-							Devices: []v1alpha3.NetworkDeviceSpec{
+			machine: &infrav1.VSphereVM{
+				Spec: infrav1.VSphereVMSpec{
+					VirtualMachineCloneSpec: infrav1.VirtualMachineCloneSpec{
+						Network: infrav1.NetworkSpec{
+							Devices: []infrav1.NetworkDeviceSpec{
 								{
 									NetworkName: "network1",
 									MACAddr:     "00:00:00:00:00",
@@ -376,11 +377,11 @@ network:
 		},
 		{
 			name: "static4+dhcp6",
-			machine: &v1alpha3.VSphereVM{
-				Spec: v1alpha3.VSphereVMSpec{
-					VirtualMachineCloneSpec: v1alpha3.VirtualMachineCloneSpec{
-						Network: v1alpha3.NetworkSpec{
-							Devices: []v1alpha3.NetworkDeviceSpec{
+			machine: &infrav1.VSphereVM{
+				Spec: infrav1.VSphereVMSpec{
+					VirtualMachineCloneSpec: infrav1.VirtualMachineCloneSpec{
+						Network: infrav1.NetworkSpec{
+							Devices: []infrav1.NetworkDeviceSpec{
 								{
 									NetworkName: "network1",
 									MACAddr:     "00:00:00:00:00",
@@ -416,11 +417,11 @@ network:
 		},
 		{
 			name: "static4+dhcp6+static-routes",
-			machine: &v1alpha3.VSphereVM{
-				Spec: v1alpha3.VSphereVMSpec{
-					VirtualMachineCloneSpec: v1alpha3.VirtualMachineCloneSpec{
-						Network: v1alpha3.NetworkSpec{
-							Devices: []v1alpha3.NetworkDeviceSpec{
+			machine: &infrav1.VSphereVM{
+				Spec: infrav1.VSphereVMSpec{
+					VirtualMachineCloneSpec: infrav1.VirtualMachineCloneSpec{
+						Network: infrav1.NetworkSpec{
+							Devices: []infrav1.NetworkDeviceSpec{
 								{
 									NetworkName: "network1",
 									MACAddr:     "00:00:00:00:00",
@@ -429,7 +430,7 @@ network:
 									Gateway4:    "192.168.4.1",
 								},
 							},
-							Routes: []v1alpha3.NetworkRouteSpec{
+							Routes: []infrav1.NetworkRouteSpec{
 								{
 									To:     "192.168.5.1/24",
 									Via:    "192.168.4.254",
@@ -467,16 +468,16 @@ network:
 		},
 		{
 			name: "2nets",
-			machine: &v1alpha3.VSphereVM{
-				Spec: v1alpha3.VSphereVMSpec{
-					VirtualMachineCloneSpec: v1alpha3.VirtualMachineCloneSpec{
-						Network: v1alpha3.NetworkSpec{
-							Devices: []v1alpha3.NetworkDeviceSpec{
+			machine: &infrav1.VSphereVM{
+				Spec: infrav1.VSphereVMSpec{
+					VirtualMachineCloneSpec: infrav1.VirtualMachineCloneSpec{
+						Network: infrav1.NetworkSpec{
+							Devices: []infrav1.NetworkDeviceSpec{
 								{
 									NetworkName: "network1",
 									MACAddr:     "00:00:00:00:00",
 									DHCP4:       true,
-									Routes: []v1alpha3.NetworkRouteSpec{
+									Routes: []infrav1.NetworkRouteSpec{
 										{
 											To:     "192.168.5.1/24",
 											Via:    "192.168.4.254",
@@ -527,11 +528,11 @@ network:
 		},
 		{
 			name: "2nets-static+dhcp",
-			machine: &v1alpha3.VSphereVM{
-				Spec: v1alpha3.VSphereVMSpec{
-					VirtualMachineCloneSpec: v1alpha3.VirtualMachineCloneSpec{
-						Network: v1alpha3.NetworkSpec{
-							Devices: []v1alpha3.NetworkDeviceSpec{
+			machine: &infrav1.VSphereVM{
+				Spec: infrav1.VSphereVMSpec{
+					VirtualMachineCloneSpec: infrav1.VirtualMachineCloneSpec{
+						Network: infrav1.NetworkSpec{
+							Devices: []infrav1.NetworkDeviceSpec{
 								{
 									NetworkName:   "network1",
 									MACAddr:       "00:00:00:00:00",
@@ -586,12 +587,63 @@ network:
         - "vmware6.ci"
 `,
 		},
+		{
+			name: "2nets+network-statuses",
+			machine: &infrav1.VSphereVM{
+				Spec: infrav1.VSphereVMSpec{
+					VirtualMachineCloneSpec: infrav1.VirtualMachineCloneSpec{
+						Network: infrav1.NetworkSpec{
+							Devices: []infrav1.NetworkDeviceSpec{
+								{
+									NetworkName: "network1",
+									MACAddr:     "00:00:00:00:00",
+									DHCP4:       true,
+								},
+								{
+									NetworkName: "network12",
+									MACAddr:     "00:00:00:00:01",
+									DHCP6:       true,
+								},
+							},
+						},
+					},
+				},
+			},
+			networkStatuses: []infrav1.NetworkStatus{
+				{MACAddr: "00:00:00:00:ab"},
+				{MACAddr: "00:00:00:00:cd"},
+			},
+			expected: `
+instance-id: "test-vm"
+local-hostname: "test-vm"
+wait-on-network:
+  ipv4: true
+  ipv6: true
+network:
+  version: 2
+  ethernets:
+    id0:
+      match:
+        macaddress: "00:00:00:00:ab"
+      set-name: "eth0"
+      wakeonlan: true
+      dhcp4: true
+      dhcp6: false
+    id1:
+      match:
+        macaddress: "00:00:00:00:cd"
+      set-name: "eth1"
+      wakeonlan: true
+      dhcp4: false
+      dhcp6: true
+`,
+		},
 	}
 	for _, tc := range testCases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			tc.machine.Name = tc.name
-			actVal, err := util.GetMachineMetadata("test-vm", *tc.machine)
+			actVal, err := util.GetMachineMetadata("test-vm", *tc.machine, tc.networkStatuses...)
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -18,147 +18,36 @@ package flavors
 
 import (
 	corev1 "k8s.io/api/core/v1"
-	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/pointer"
-	infrav1 "sigs.k8s.io/cluster-api-provider-vsphere/api/v1alpha3"
-	cloudprovidersvc "sigs.k8s.io/cluster-api-provider-vsphere/pkg/services/cloudprovider"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha3"
-	bootstrapv1 "sigs.k8s.io/cluster-api/bootstrap/kubeadm/api/v1alpha3"
+	infrav1 "sigs.k8s.io/cluster-api-provider-vsphere/api/v1alpha4"
+	"sigs.k8s.io/cluster-api-provider-vsphere/packaging/flavorgen/flavors/env"
+	"sigs.k8s.io/cluster-api-provider-vsphere/packaging/flavorgen/flavors/util"
+	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/identity"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
+	bootstrapv1 "sigs.k8s.io/cluster-api/bootstrap/kubeadm/api/v1alpha4"
 	kubeadmv1beta1 "sigs.k8s.io/cluster-api/bootstrap/kubeadm/types/v1beta1"
-	controlplanev1 "sigs.k8s.io/cluster-api/controlplane/kubeadm/api/v1alpha3"
-	addonsv1alpha3 "sigs.k8s.io/cluster-api/exp/addons/api/v1alpha3"
+	controlplanev1 "sigs.k8s.io/cluster-api/controlplane/kubeadm/api/v1alpha4"
+	addonsv1alpha4 "sigs.k8s.io/cluster-api/exp/addons/api/v1alpha4"
 	"sigs.k8s.io/yaml"
 )
-
-const (
-	clusterNameVar               = "${CLUSTER_NAME}"
-	controlPlaneMachineCountVar  = "${CONTROL_PLANE_MACHINE_COUNT}"
-	defaultClusterCIDR           = "192.168.0.0/16"
-	defaultDiskGiB               = 25
-	defaultMemoryMiB             = 8192
-	defaultNumCPUs               = 2
-	kubernetesVersionVar         = "${KUBERNETES_VERSION}"
-	machineDeploymentNameSuffix  = "-md-0"
-	namespaceVar                 = "${NAMESPACE}"
-	vSphereDataCenterVar         = "${VSPHERE_DATACENTER}"
-	vSphereThumbprint            = "${VSPHERE_TLS_THUMBPRINT}"
-	vSphereDatastoreVar          = "${VSPHERE_DATASTORE}"
-	vSphereFolderVar             = "${VSPHERE_FOLDER}"
-	vSphereHaproxyTemplateVar    = "${VSPHERE_HAPROXY_TEMPLATE}"
-	vSphereNetworkVar            = "${VSPHERE_NETWORK}"
-	vSphereResourcePoolVar       = "${VSPHERE_RESOURCE_POOL}"
-	vSphereServerVar             = "${VSPHERE_SERVER}"
-	vSphereSSHAuthorizedKeysVar  = "${VSPHERE_SSH_AUTHORIZED_KEY}"
-	vSphereTemplateVar           = "${VSPHERE_TEMPLATE}"
-	workerMachineCountVar        = "${WORKER_MACHINE_COUNT}"
-	controlPlaneEndpointVar      = "${CONTROL_PLANE_ENDPOINT_IP}"
-	vSphereUsername              = "${VSPHERE_USERNAME}"
-	vSpherePassword              = "${VSPHERE_PASSWORD}" /* #nosec */
-	clusterResourceSetNameSuffix = "-crs-0"
-)
-
-type replacement struct {
-	kind      string
-	name      string
-	value     interface{}
-	fieldPath []string
-}
-
-var (
-	replacements = []replacement{
-		{
-			kind:      "KubeadmControlPlane",
-			name:      "${CLUSTER_NAME}",
-			value:     controlPlaneMachineCountVar,
-			fieldPath: []string{"spec", "replicas"},
-		},
-		{
-			kind:      "MachineDeployment",
-			name:      "${CLUSTER_NAME}-md-0",
-			value:     workerMachineCountVar,
-			fieldPath: []string{"spec", "replicas"},
-		},
-		{
-			kind:      "MachineDeployment",
-			name:      "${CLUSTER_NAME}-md-0",
-			value:     map[string]interface{}{},
-			fieldPath: []string{"spec", "selector", "matchLabels"},
-		},
-	}
-
-	stringVars = []string{
-		regexVar(clusterNameVar),
-		regexVar(clusterNameVar + machineDeploymentNameSuffix),
-		regexVar(namespaceVar),
-		regexVar(kubernetesVersionVar),
-		regexVar(vSphereFolderVar),
-		regexVar(vSphereHaproxyTemplateVar),
-		regexVar(vSphereResourcePoolVar),
-		regexVar(vSphereSSHAuthorizedKeysVar),
-		regexVar(vSphereDataCenterVar),
-		regexVar(vSphereDatastoreVar),
-		regexVar(vSphereNetworkVar),
-		regexVar(vSphereServerVar),
-		regexVar(vSphereTemplateVar),
-		regexVar(vSphereHaproxyTemplateVar),
-	}
-)
-
-func regexVar(str string) string {
-	return "((?m:\\" + str + "$))"
-}
 
 func newVSphereCluster(lb *infrav1.HAProxyLoadBalancer) infrav1.VSphereCluster {
 	vsphereCluster := infrav1.VSphereCluster{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: infrav1.GroupVersion.String(),
-			Kind:       typeToKind(&infrav1.VSphereCluster{}),
+			Kind:       util.TypeToKind(&infrav1.VSphereCluster{}),
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      clusterNameVar,
-			Namespace: namespaceVar,
+			Name:      env.ClusterNameVar,
+			Namespace: env.NamespaceVar,
 		},
 		Spec: infrav1.VSphereClusterSpec{
-			Server:     vSphereServerVar,
-			Thumbprint: vSphereThumbprint,
-			CloudProviderConfiguration: infrav1.CPIConfig{
-				Global: infrav1.CPIGlobalConfig{
-					SecretName:      "cloud-provider-vsphere-credentials",
-					SecretNamespace: metav1.NamespaceSystem,
-					Thumbprint:      vSphereThumbprint,
-				},
-				VCenter: map[string]infrav1.CPIVCenterConfig{
-					vSphereServerVar: {
-						Datacenters: vSphereDataCenterVar,
-						Thumbprint:  vSphereThumbprint,
-					},
-				},
-				Network: infrav1.CPINetworkConfig{
-					Name: vSphereNetworkVar,
-				},
-				Workspace: infrav1.CPIWorkspaceConfig{
-					Server:       vSphereServerVar,
-					Datacenter:   vSphereDataCenterVar,
-					Datastore:    vSphereDatastoreVar,
-					ResourcePool: vSphereResourcePoolVar,
-					Folder:       vSphereFolderVar,
-				},
-				ProviderConfig: infrav1.CPIProviderConfig{
-					Cloud: &infrav1.CPICloudConfig{
-						ControllerImage: cloudprovidersvc.DefaultCPIControllerImage,
-					},
-					Storage: &infrav1.CPIStorageConfig{
-						ControllerImage:     cloudprovidersvc.DefaultCSIControllerImage,
-						NodeDriverImage:     cloudprovidersvc.DefaultCSINodeDriverImage,
-						AttacherImage:       cloudprovidersvc.DefaultCSIAttacherImage,
-						ProvisionerImage:    cloudprovidersvc.DefaultCSIProvisionerImage,
-						MetadataSyncerImage: cloudprovidersvc.DefaultCSIMetadataSyncerImage,
-						LivenessProbeImage:  cloudprovidersvc.DefaultCSILivenessProbeImage,
-						RegistrarImage:      cloudprovidersvc.DefaultCSIRegistrarImage,
-					},
-				},
+			Server:     env.VSphereServerVar,
+			Thumbprint: env.VSphereThumbprint,
+			IdentityRef: &infrav1.VSphereIdentityReference{
+				Name: env.ClusterNameVar,
+				Kind: infrav1.SecretKind,
 			},
 		},
 	}
@@ -170,7 +59,7 @@ func newVSphereCluster(lb *infrav1.HAProxyLoadBalancer) infrav1.VSphereCluster {
 		}
 	} else {
 		vsphereCluster.Spec.ControlPlaneEndpoint = infrav1.APIEndpoint{
-			Host: controlPlaneEndpointVar,
+			Host: env.ControlPlaneEndpointVar,
 			Port: 6443,
 		}
 	}
@@ -181,17 +70,17 @@ func newCluster(vsphereCluster infrav1.VSphereCluster, controlPlane *controlplan
 	cluster := clusterv1.Cluster{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: clusterv1.GroupVersion.String(),
-			Kind:       typeToKind(&clusterv1.Cluster{}),
+			Kind:       util.TypeToKind(&clusterv1.Cluster{}),
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      clusterNameVar,
-			Namespace: namespaceVar,
+			Name:      env.ClusterNameVar,
+			Namespace: env.NamespaceVar,
 			Labels:    clusterLabels(),
 		},
 		Spec: clusterv1.ClusterSpec{
 			ClusterNetwork: &clusterv1.ClusterNetwork{
 				Pods: &clusterv1.NetworkRanges{
-					CIDRBlocks: []string{defaultClusterCIDR},
+					CIDRBlocks: []string{env.DefaultClusterCIDR},
 				},
 			},
 			InfrastructureRef: &corev1.ObjectReference{
@@ -212,18 +101,18 @@ func newCluster(vsphereCluster infrav1.VSphereCluster, controlPlane *controlplan
 }
 
 func clusterLabels() map[string]string {
-	return map[string]string{"cluster.x-k8s.io/cluster-name": clusterNameVar}
+	return map[string]string{"cluster.x-k8s.io/cluster-name": env.ClusterNameVar}
 }
 
 func newVSphereMachineTemplate() infrav1.VSphereMachineTemplate {
 	return infrav1.VSphereMachineTemplate{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      clusterNameVar,
-			Namespace: namespaceVar,
+			Name:      env.ClusterNameVar,
+			Namespace: env.NamespaceVar,
 		},
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: infrav1.GroupVersion.String(),
-			Kind:       typeToKind(&infrav1.VSphereMachineTemplate{}),
+			Kind:       util.TypeToKind(&infrav1.VSphereMachineTemplate{}),
 		},
 		Spec: infrav1.VSphereMachineTemplateSpec{
 			Template: infrav1.VSphereMachineTemplateResource{
@@ -241,27 +130,28 @@ func defaultVirtualMachineSpec() infrav1.VSphereMachineSpec {
 
 func defaultVirtualMachineCloneSpec() infrav1.VirtualMachineCloneSpec {
 	return infrav1.VirtualMachineCloneSpec{
-		Datacenter: vSphereDataCenterVar,
+		Datacenter: env.VSphereDataCenterVar,
 		Network: infrav1.NetworkSpec{
 			Devices: []infrav1.NetworkDeviceSpec{
 				{
-					NetworkName: vSphereNetworkVar,
+					NetworkName: env.VSphereNetworkVar,
 					DHCP4:       true,
 					DHCP6:       false,
 				},
 			},
 		},
-		CustomVMXKeys: defaultCustomVMXKeys(),
-		CloneMode:     infrav1.LinkedClone,
-		NumCPUs:       defaultNumCPUs,
-		DiskGiB:       defaultDiskGiB,
-		MemoryMiB:     defaultMemoryMiB,
-		Template:      vSphereTemplateVar,
-		Server:        vSphereServerVar,
-		Thumbprint:    vSphereThumbprint,
-		ResourcePool:  vSphereResourcePoolVar,
-		Datastore:     vSphereDatastoreVar,
-		Folder:        vSphereFolderVar,
+		CustomVMXKeys:     defaultCustomVMXKeys(),
+		CloneMode:         infrav1.LinkedClone,
+		NumCPUs:           env.DefaultNumCPUs,
+		DiskGiB:           env.DefaultDiskGiB,
+		MemoryMiB:         env.DefaultMemoryMiB,
+		Template:          env.VSphereTemplateVar,
+		Server:            env.VSphereServerVar,
+		Thumbprint:        env.VSphereThumbprint,
+		ResourcePool:      env.VSphereResourcePoolVar,
+		Datastore:         env.VSphereDatastoreVar,
+		StoragePolicyName: env.VSphereStoragePolicyVar,
+		Folder:            env.VSphereFolderVar,
 	}
 }
 
@@ -289,12 +179,12 @@ func defaultKubeadmInitSpec(files []bootstrapv1.File) bootstrapv1.KubeadmConfigS
 func newKubeadmConfigTemplate() bootstrapv1.KubeadmConfigTemplate {
 	return bootstrapv1.KubeadmConfigTemplate{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      clusterNameVar + machineDeploymentNameSuffix,
-			Namespace: namespaceVar,
+			Name:      env.ClusterNameVar + env.MachineDeploymentNameSuffix,
+			Namespace: env.NamespaceVar,
 		},
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: bootstrapv1.GroupVersion.String(),
-			Kind:       typeToKind(&bootstrapv1.KubeadmConfigTemplate{}),
+			Kind:       util.TypeToKind(&bootstrapv1.KubeadmConfigTemplate{}),
 		},
 		Spec: bootstrapv1.KubeadmConfigTemplateSpec{
 			Template: bootstrapv1.KubeadmConfigTemplateResource{
@@ -324,7 +214,7 @@ func defaultUsers() []bootstrapv1.User {
 			Name: "capv",
 			Sudo: pointer.StringPtr("ALL=(ALL) NOPASSWD:ALL"),
 			SSHAuthorizedKeys: []string{
-				vSphereSSHAuthorizedKeysVar,
+				env.VSphereSSHAuthorizedKeysVar,
 			},
 		},
 	}
@@ -357,40 +247,40 @@ func defaultPreKubeadmCommands() []string {
 }
 
 func kubeVIPPod() string {
-	hostPathType := v1.HostPathFileOrCreate
-	pod := &v1.Pod{
+	hostPathType := corev1.HostPathFileOrCreate
+	pod := &corev1.Pod{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "v1",
-			Kind:       typeToKind(&v1.Pod{}),
+			Kind:       util.TypeToKind(&corev1.Pod{}),
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "kube-vip",
 			Namespace: "kube-system",
 		},
-		Spec: v1.PodSpec{
-			Containers: []v1.Container{
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
 				{
 					Name:  "kube-vip",
-					Image: "plndr/kube-vip:0.1.8",
+					Image: "plndr/kube-vip:0.3.2",
 					Args: []string{
 						"start",
 					},
-					ImagePullPolicy: v1.PullIfNotPresent,
-					SecurityContext: &v1.SecurityContext{
-						Capabilities: &v1.Capabilities{
-							Add: []v1.Capability{
+					ImagePullPolicy: corev1.PullIfNotPresent,
+					SecurityContext: &corev1.SecurityContext{
+						Capabilities: &corev1.Capabilities{
+							Add: []corev1.Capability{
 								"NET_ADMIN",
 								"SYS_TIME",
 							},
 						},
 					},
-					VolumeMounts: []v1.VolumeMount{
+					VolumeMounts: []corev1.VolumeMount{
 						{
 							MountPath: "/etc/kubernetes/admin.conf",
 							Name:      "kubeconfig",
 						},
 					},
-					Env: []v1.EnvVar{
+					Env: []corev1.EnvVar{
 						{
 							Name:  "vip_arp",
 							Value: "true",
@@ -401,7 +291,7 @@ func kubeVIPPod() string {
 						},
 						{
 							Name:  "vip_address",
-							Value: controlPlaneEndpointVar,
+							Value: env.ControlPlaneEndpointVar,
 						},
 						{
 							// this is hardcoded since we use eth0 as a network interface for all of our machines in this template
@@ -424,11 +314,11 @@ func kubeVIPPod() string {
 				},
 			},
 			HostNetwork: true,
-			Volumes: []v1.Volume{
+			Volumes: []corev1.Volume{
 				{
 					Name: "kubeconfig",
-					VolumeSource: v1.VolumeSource{
-						HostPath: &v1.HostPathVolumeSource{
+					VolumeSource: corev1.VolumeSource{
+						HostPath: &corev1.HostPathVolumeSource{
 							Path: "/etc/kubernetes/admin.conf",
 							Type: &hostPathType,
 						},
@@ -443,59 +333,63 @@ func kubeVIPPod() string {
 	}
 	return string(podBytes)
 }
-func newClusterResourceSet(cluster clusterv1.Cluster) addonsv1alpha3.ClusterResourceSet {
-	crs := addonsv1alpha3.ClusterResourceSet{
+func newClusterResourceSet(cluster clusterv1.Cluster) addonsv1alpha4.ClusterResourceSet {
+	crs := addonsv1alpha4.ClusterResourceSet{
 		TypeMeta: metav1.TypeMeta{
-			Kind:       typeToKind(&addonsv1alpha3.ClusterResourceSet{}),
-			APIVersion: addonsv1alpha3.GroupVersion.String(),
+			Kind:       util.TypeToKind(&addonsv1alpha4.ClusterResourceSet{}),
+			APIVersion: addonsv1alpha4.GroupVersion.String(),
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      cluster.Name + clusterResourceSetNameSuffix,
+			Name:      cluster.Name + env.ClusterResourceSetNameSuffix,
 			Labels:    clusterLabels(),
 			Namespace: cluster.Namespace,
 		},
-		Spec: addonsv1alpha3.ClusterResourceSetSpec{
+		Spec: addonsv1alpha4.ClusterResourceSetSpec{
 			ClusterSelector: metav1.LabelSelector{MatchLabels: clusterLabels()},
-			Resources:       []addonsv1alpha3.ResourceRef{},
+			Resources:       []addonsv1alpha4.ResourceRef{},
 		},
 	}
 
 	return crs
 }
-func appendSecretToCrsResource(crs *addonsv1alpha3.ClusterResourceSet, generatedSecret *v1.Secret) {
-	crs.Spec.Resources = append(crs.Spec.Resources, addonsv1alpha3.ResourceRef{
-		Name: generatedSecret.Name,
-		Kind: "Secret",
-	})
-}
 
-func appendConfigMapToCrsResource(crs *addonsv1alpha3.ClusterResourceSet, generatedConfigMap *v1.ConfigMap) {
-	crs.Spec.Resources = append(crs.Spec.Resources, addonsv1alpha3.ResourceRef{
-		Name: generatedConfigMap.Name,
-		Kind: "ConfigMap",
-	})
+func newIdentitySecret() corev1.Secret {
+	return corev1.Secret{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: corev1.SchemeGroupVersion.String(),
+			Kind:       "Secret",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: env.NamespaceVar,
+			Name:      env.ClusterNameVar,
+		},
+		StringData: map[string]string{
+			identity.UsernameKey: env.VSphereUsername,
+			identity.PasswordKey: env.VSpherePassword,
+		},
+	}
 }
 
 func newMachineDeployment(cluster clusterv1.Cluster, machineTemplate infrav1.VSphereMachineTemplate, bootstrapTemplate bootstrapv1.KubeadmConfigTemplate) clusterv1.MachineDeployment {
 	return clusterv1.MachineDeployment{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: clusterv1.GroupVersion.String(),
-			Kind:       typeToKind(&clusterv1.MachineDeployment{}),
+			Kind:       util.TypeToKind(&clusterv1.MachineDeployment{}),
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      clusterNameVar + machineDeploymentNameSuffix,
+			Name:      env.ClusterNameVar + env.MachineDeploymentNameSuffix,
 			Labels:    clusterLabels(),
-			Namespace: namespaceVar,
+			Namespace: env.NamespaceVar,
 		},
 		Spec: clusterv1.MachineDeploymentSpec{
-			ClusterName: clusterNameVar,
+			ClusterName: env.ClusterNameVar,
 			Replicas:    pointer.Int32Ptr(int32(555)),
 			Template: clusterv1.MachineTemplateSpec{
 				ObjectMeta: clusterv1.ObjectMeta{
 					Labels: clusterLabels(),
 				},
 				Spec: clusterv1.MachineSpec{
-					Version:     pointer.StringPtr(kubernetesVersionVar),
+					Version:     pointer.StringPtr(env.KubernetesVersionVar),
 					ClusterName: cluster.Name,
 					Bootstrap: clusterv1.Bootstrap{
 						ConfigRef: &corev1.ObjectReference{
@@ -517,23 +411,23 @@ func newMachineDeployment(cluster clusterv1.Cluster, machineTemplate infrav1.VSp
 
 func newHAProxyLoadBalancer() infrav1.HAProxyLoadBalancer {
 	cloneSpec := defaultVirtualMachineCloneSpec()
-	cloneSpec.Template = vSphereHaproxyTemplateVar
+	cloneSpec.Template = env.VSphereHaproxyTemplateVar
 	return infrav1.HAProxyLoadBalancer{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: infrav1.GroupVersion.String(),
-			Kind:       typeToKind(&infrav1.HAProxyLoadBalancer{}),
+			Kind:       util.TypeToKind(&infrav1.HAProxyLoadBalancer{}),
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      clusterNameVar,
+			Name:      env.ClusterNameVar,
 			Labels:    clusterLabels(),
-			Namespace: namespaceVar,
+			Namespace: env.NamespaceVar,
 		},
 		Spec: infrav1.HAProxyLoadBalancerSpec{
 			VirtualMachineConfiguration: cloneSpec,
 			User: &infrav1.SSHUser{
 				Name: "capv",
 				AuthorizedKeys: []string{
-					vSphereSSHAuthorizedKeysVar,
+					env.VSphereSSHAuthorizedKeysVar,
 				},
 			},
 		},
@@ -555,15 +449,15 @@ func newKubeadmControlplane(replicas int, infraTemplate infrav1.VSphereMachineTe
 	return controlplanev1.KubeadmControlPlane{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: controlplanev1.GroupVersion.String(),
-			Kind:       typeToKind(&controlplanev1.KubeadmControlPlane{}),
+			Kind:       util.TypeToKind(&controlplanev1.KubeadmControlPlane{}),
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      clusterNameVar,
-			Namespace: namespaceVar,
+			Name:      env.ClusterNameVar,
+			Namespace: env.NamespaceVar,
 		},
 		Spec: controlplanev1.KubeadmControlPlaneSpec{
 			Replicas: pointer.Int32Ptr(int32(replicas)),
-			Version:  kubernetesVersionVar,
+			Version:  env.KubernetesVersionVar,
 			InfrastructureTemplate: corev1.ObjectReference{
 				APIVersion: infraTemplate.GroupVersionKind().GroupVersion().String(),
 				Kind:       infraTemplate.Kind,
@@ -571,38 +465,5 @@ func newKubeadmControlplane(replicas int, infraTemplate infrav1.VSphereMachineTe
 			},
 			KubeadmConfigSpec: defaultKubeadmInitSpec(files),
 		},
-	}
-}
-
-func newConfigMap(name string, o runtime.Object) *v1.ConfigMap {
-	return &v1.ConfigMap{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: v1.SchemeGroupVersion.String(),
-			Kind:       "ConfigMap",
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: namespaceVar,
-		},
-		Data: map[string]string{
-			"data": generateObjectYAML(o, []replacement{}),
-		},
-	}
-}
-
-func newSecret(name string, o runtime.Object) *v1.Secret {
-	return &v1.Secret{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: v1.SchemeGroupVersion.String(),
-			Kind:       "Secret",
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: namespaceVar,
-		},
-		StringData: map[string]string{
-			"data": generateObjectYAML(o, []replacement{}),
-		},
-		Type: addonsv1alpha3.ClusterResourceSetSecretType,
 	}
 }

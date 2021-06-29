@@ -32,14 +32,15 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	apitypes "k8s.io/apimachinery/pkg/types"
 	utilnet "k8s.io/utils/net"
 	"k8s.io/utils/pointer"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha3"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
 	clusterutilv1 "sigs.k8s.io/cluster-api/util"
+	"sigs.k8s.io/cluster-api/util/annotations"
+	"sigs.k8s.io/cluster-api/util/collections"
+	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/cluster-api/util/patch"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	ctrlutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -50,7 +51,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	infrav1 "sigs.k8s.io/cluster-api-provider-vsphere/api/v1alpha3"
+	infrav1 "sigs.k8s.io/cluster-api-provider-vsphere/api/v1alpha4"
 	hapi "sigs.k8s.io/cluster-api-provider-vsphere/contrib/haproxy/openapi"
 	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/context"
 	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/haproxy"
@@ -103,9 +104,7 @@ func AddHAProxyLoadBalancerControllerToManager(ctx *context.ControllerManagerCon
 		// this HAProxyLoadBalancer servies.
 		Watches(
 			&source.Kind{Type: &clusterv1.Machine{}},
-			&handler.EnqueueRequestsFromMapFunc{
-				ToRequests: handler.ToRequestsFunc(reconciler.controlPlaneMachineToHAProxyLoadBalancer),
-			},
+			handler.EnqueueRequestsFromMapFunc(reconciler.controlPlaneMachineToHAProxyLoadBalancer),
 		).
 		// Watch a GenericEvent channel for the controlled resource.
 		//
@@ -123,9 +122,7 @@ func AddHAProxyLoadBalancerControllerToManager(ctx *context.ControllerManagerCon
 	}
 	err = controller.Watch(
 		&source.Kind{Type: &clusterv1.Cluster{}},
-		&handler.EnqueueRequestsFromMapFunc{
-			ToRequests: handler.ToRequestsFunc(reconciler.reconcileClusterToHAProxyLoadBalancers),
-		},
+		handler.EnqueueRequestsFromMapFunc(reconciler.reconcileClusterToHAProxyLoadBalancers),
 		predicate.Funcs{
 			UpdateFunc: func(e event.UpdateEvent) bool {
 				oldCluster := e.ObjectOld.(*clusterv1.Cluster)
@@ -133,7 +130,7 @@ func AddHAProxyLoadBalancerControllerToManager(ctx *context.ControllerManagerCon
 				return oldCluster.Spec.Paused && !newCluster.Spec.Paused
 			},
 			CreateFunc: func(e event.CreateEvent) bool {
-				if _, ok := e.Meta.GetAnnotations()[clusterv1.PausedAnnotation]; !ok {
+				if _, ok := e.Object.GetAnnotations()[clusterv1.PausedAnnotation]; !ok {
 					return false
 				}
 				return true
@@ -150,7 +147,7 @@ type haproxylbReconciler struct {
 }
 
 // Reconcile ensures the back-end state reflects the Kubernetes resource state intent.
-func (r haproxylbReconciler) Reconcile(req ctrl.Request) (_ ctrl.Result, reterr error) {
+func (r haproxylbReconciler) Reconcile(_ goctx.Context, req ctrl.Request) (_ ctrl.Result, reterr error) {
 	logger := r.Logger.WithValues("namespace", req.Namespace, "name", req.Name)
 
 	logger.Info("Starting reconciliation")
@@ -194,7 +191,7 @@ func (r haproxylbReconciler) Reconcile(req ctrl.Request) (_ ctrl.Result, reterr 
 
 	cluster, err := clusterutilv1.GetClusterFromMetadata(r.Context, r.Client, haproxylb.ObjectMeta)
 	if err == nil {
-		if clusterutilv1.IsPaused(cluster, haproxylb) {
+		if annotations.IsPaused(cluster, haproxylb) {
 			ctx.Logger.V(4).Info("Linked cluster is paused")
 			return ctrl.Result{}, nil
 		}
@@ -255,7 +252,7 @@ func (r haproxylbReconciler) reconcileDeleteVM(ctx *context.HAProxyLoadBalancerC
 func (r haproxylbReconciler) reconcileDeleteVMPre7(ctx *context.HAProxyLoadBalancerContext) error {
 	// Get ready to find the associated VSphereVM resource.
 	vm := &infrav1.VSphereVM{}
-	vmKey := apitypes.NamespacedName{
+	vmKey := types.NamespacedName{
 		Namespace: ctx.HAProxyLoadBalancer.Namespace,
 		Name:      ctx.HAProxyLoadBalancer.Name + "-lb",
 	}
@@ -356,12 +353,12 @@ func (r haproxylbReconciler) BackEndpointsForCluster(ctx *context.HAProxyLoadBal
 	}
 
 	// Get the control plane machines.
-	controlPlaneMachines := clusterutilv1.GetControlPlaneMachinesFromList(machineList)
+	controlPlaneMachines := collections.FromMachineList(machineList).Filter(collections.ControlPlaneMachines(ctx.Cluster.Name))
 	endpoints := make([]corev1.EndpointAddress, 0)
 	for _, machine := range controlPlaneMachines {
 
 		// check if machine has joined the cluster before adding it to the list of backends
-		if ctx.Cluster.Status.ControlPlaneInitialized {
+		if conditions.IsTrue(ctx.Cluster, clusterv1.ControlPlaneInitializedCondition) {
 			if machine.Status.NodeRef == nil ||
 				machine.Status.FailureReason != nil ||
 				machine.Status.FailureMessage != nil {
@@ -556,10 +553,7 @@ func (r haproxylbReconciler) reconcileVMPre7(ctx *context.HAProxyLoadBalancerCon
 		// clone spec.
 		ctx.HAProxyLoadBalancer.Spec.VirtualMachineConfiguration.DeepCopyInto(&vm.Spec.VirtualMachineCloneSpec)
 
-		objectKey, err := ctrlclient.ObjectKeyFromObject(vm)
-		if err != nil {
-			return err
-		}
+		objectKey := ctrlclient.ObjectKeyFromObject(vm)
 		existingVM := &infrav1.VSphereVM{}
 		if err := r.Client.Get(ctx, objectKey, existingVM); err != nil {
 			if apierrors.IsNotFound(err) {
@@ -634,13 +628,13 @@ func (r haproxylbReconciler) reconcileNetwork(ctx *context.HAProxyLoadBalancerCo
 // used to trigger reconcile events for an HAProxyLoadBalancer when a CAPI
 // Machine is reconciled and it has IP addresses and is a member of the same
 // control plane that the HAProxyLoadBalancer services.
-func (r haproxylbReconciler) controlPlaneMachineToHAProxyLoadBalancer(o handler.MapObject) []ctrl.Request {
-	machine, ok := o.Object.(*clusterv1.Machine)
+func (r haproxylbReconciler) controlPlaneMachineToHAProxyLoadBalancer(o ctrlclient.Object) []ctrl.Request {
+	machine, ok := o.(*clusterv1.Machine)
 	if !ok {
 		r.Logger.Error(errors.New("invalid type"),
 			"Expected to receive a CAPI Machine resource",
 			"expected-type", "Machine",
-			"actual-type", fmt.Sprintf("%T", o.Object))
+			"actual-type", fmt.Sprintf("%T", o))
 		return nil
 	}
 	if !infrautilv1.IsControlPlaneMachine(machine) {
@@ -680,7 +674,7 @@ func (r haproxylbReconciler) controlPlaneMachineToHAProxyLoadBalancer(o handler.
 		infraClusterRef.Namespace = cluster.Namespace
 	}
 
-	infraClusterKey := client.ObjectKey{
+	infraClusterKey := ctrlclient.ObjectKey{
 		Namespace: infraClusterRef.Namespace,
 		Name:      infraClusterRef.Name,
 	}
@@ -745,15 +739,15 @@ func (r haproxylbReconciler) controlPlaneMachineToHAProxyLoadBalancer(o handler.
 	}}
 }
 
-func (r *haproxylbReconciler) reconcileClusterToHAProxyLoadBalancers(a handler.MapObject) []reconcile.Request {
+func (r *haproxylbReconciler) reconcileClusterToHAProxyLoadBalancers(a ctrlclient.Object) []reconcile.Request {
 	requests := []reconcile.Request{}
 	lbs := &infrav1.HAProxyLoadBalancerList{}
 	err := r.Client.List(goctx.Background(),
 		lbs,
-		ctrlclient.InNamespace(a.Meta.GetNamespace()),
+		ctrlclient.InNamespace(a.GetNamespace()),
 		ctrlclient.MatchingLabels(
 			map[string]string{
-				clusterv1.ClusterLabelName: a.Meta.GetName(),
+				clusterv1.ClusterLabelName: a.GetName(),
 			},
 		))
 	if err != nil {
@@ -761,7 +755,7 @@ func (r *haproxylbReconciler) reconcileClusterToHAProxyLoadBalancers(a handler.M
 	}
 	for _, lb := range lbs.Items {
 		r := reconcile.Request{
-			NamespacedName: apitypes.NamespacedName{
+			NamespacedName: types.NamespacedName{
 				Name:      lb.Name,
 				Namespace: lb.Namespace,
 			},

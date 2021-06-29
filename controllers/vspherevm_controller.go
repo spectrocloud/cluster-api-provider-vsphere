@@ -29,11 +29,13 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
-	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha3"
+	clusterv1 "sigs.k8s.io/cluster-api/api/v1alpha4"
 	clusterutilv1 "sigs.k8s.io/cluster-api/util"
+	"sigs.k8s.io/cluster-api/util/annotations"
 	"sigs.k8s.io/cluster-api/util/conditions"
 	"sigs.k8s.io/cluster-api/util/patch"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	ctrlutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -44,8 +46,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	infrav1 "sigs.k8s.io/cluster-api-provider-vsphere/api/v1alpha3"
+	infrav1 "sigs.k8s.io/cluster-api-provider-vsphere/api/v1alpha4"
 	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/context"
+	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/identity"
 	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/record"
 	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/services"
 	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/services/govmomi"
@@ -97,9 +100,7 @@ func AddVMControllerToManager(ctx *context.ControllerManagerContext, mgr manager
 
 	err = controller.Watch(
 		&source.Kind{Type: &clusterv1.Cluster{}},
-		&handler.EnqueueRequestsFromMapFunc{
-			ToRequests: handler.ToRequestsFunc(r.clusterToVSphereVMs),
-		},
+		handler.EnqueueRequestsFromMapFunc(r.clusterToVSphereVMs),
 		predicate.Funcs{
 			UpdateFunc: func(e event.UpdateEvent) bool {
 				oldCluster := e.ObjectOld.(*clusterv1.Cluster)
@@ -107,7 +108,7 @@ func AddVMControllerToManager(ctx *context.ControllerManagerContext, mgr manager
 				return oldCluster.Spec.Paused && !newCluster.Spec.Paused
 			},
 			CreateFunc: func(e event.CreateEvent) bool {
-				if _, ok := e.Meta.GetAnnotations()[clusterv1.PausedAnnotation]; !ok {
+				if _, ok := e.Object.GetAnnotations()[clusterv1.PausedAnnotation]; !ok {
 					return false
 				}
 				return true
@@ -125,7 +126,7 @@ type vmReconciler struct {
 
 // Reconcile ensures the back-end state reflects the Kubernetes resource state intent.
 // nolint:gocognit
-func (r vmReconciler) Reconcile(req ctrl.Request) (_ ctrl.Result, reterr error) {
+func (r vmReconciler) Reconcile(ctx goctx.Context, req ctrl.Request) (_ ctrl.Result, reterr error) {
 	// Get the VSphereVM resource for this request.
 	vsphereVM := &infrav1.VSphereVM{}
 	if err := r.Client.Get(r, req.NamespacedName, vsphereVM); err != nil {
@@ -134,14 +135,6 @@ func (r vmReconciler) Reconcile(req ctrl.Request) (_ ctrl.Result, reterr error) 
 			return reconcile.Result{}, nil
 		}
 		return reconcile.Result{}, err
-	}
-
-	// Get or create an authenticated session to the vSphere endpoint.
-	authSession, err := session.GetOrCreate(r.Context,
-		vsphereVM.Spec.Server, vsphereVM.Spec.Datacenter,
-		r.ControllerManagerContext.Username, r.ControllerManagerContext.Password, vsphereVM.Spec.Thumbprint)
-	if err != nil {
-		return reconcile.Result{}, errors.Wrap(err, "failed to create vSphere session")
 	}
 
 	// Create the patch helper.
@@ -154,6 +147,13 @@ func (r vmReconciler) Reconcile(req ctrl.Request) (_ ctrl.Result, reterr error) 
 			vsphereVM.Namespace,
 			vsphereVM.Name)
 	}
+
+	authSession, err := r.retrieveVcenterSession(ctx, vsphereVM)
+	if err != nil {
+		conditions.MarkFalse(vsphereVM, infrav1.VCenterAvailableCondition, infrav1.VCenterUnreachableReason, clusterv1.ConditionSeverityError, err.Error())
+		return reconcile.Result{}, err
+	}
+	conditions.MarkTrue(vsphereVM, infrav1.VCenterAvailableCondition)
 
 	// Create the VM context for this request.
 	vmContext := &context.VMContext{
@@ -181,6 +181,7 @@ func (r vmReconciler) Reconcile(req ctrl.Request) (_ ctrl.Result, reterr error) 
 		conditions.SetSummary(vmContext.VSphereVM,
 			conditions.WithConditions(
 				infrav1.VMProvisionedCondition,
+				infrav1.VCenterAvailableCondition,
 			),
 		)
 
@@ -264,7 +265,7 @@ func (r vmReconciler) Reconcile(req ctrl.Request) (_ ctrl.Result, reterr error) 
 
 	cluster, err := clusterutilv1.GetClusterFromMetadata(r.ControllerContext, r.Client, vsphereVM.ObjectMeta)
 	if err == nil {
-		if clusterutilv1.IsPaused(cluster, vsphereVM) {
+		if annotations.IsPaused(cluster, vsphereVM) {
 			r.Logger.V(4).Info("VSphereVM %s/%s linked to a cluster that is paused",
 				vsphereVM.Namespace, vsphereVM.Name)
 			return reconcile.Result{}, nil
@@ -389,12 +390,12 @@ func (r vmReconciler) reconcileNetwork(ctx *context.VMContext, vm infrav1.Virtua
 	ctx.VSphereVM.Status.Addresses = ipAddrs
 }
 
-func (r *vmReconciler) clusterToVSphereVMs(a handler.MapObject) []reconcile.Request {
+func (r *vmReconciler) clusterToVSphereVMs(a ctrlclient.Object) []reconcile.Request {
 	requests := []reconcile.Request{}
 	vms := &infrav1.VSphereVMList{}
 	err := r.Client.List(goctx.Background(), vms, ctrlclient.MatchingLabels(
 		map[string]string{
-			clusterv1.ClusterLabelName: a.Meta.GetName(),
+			clusterv1.ClusterLabelName: a.GetName(),
 		},
 	))
 	if err != nil {
@@ -410,4 +411,50 @@ func (r *vmReconciler) clusterToVSphereVMs(a handler.MapObject) []reconcile.Requ
 		requests = append(requests, r)
 	}
 	return requests
+}
+
+func (r *vmReconciler) retrieveVcenterSession(ctx goctx.Context, vsphereVM *infrav1.VSphereVM) (*session.Session, error) {
+	// Get cluster object and then get VSphereCluster object
+
+	params := session.NewParams().
+		WithServer(vsphereVM.Spec.Server).
+		WithDatacenter(vsphereVM.Spec.Datacenter).
+		WithUserInfo(r.ControllerContext.Username, r.ControllerContext.Password).
+		WithThumbprint(vsphereVM.Spec.Thumbprint).
+		WithFeatures(session.Feature{
+			EnableKeepAlive:   r.EnableKeepAlive,
+			KeepAliveDuration: r.KeepAliveDuration,
+		})
+	cluster, err := clusterutilv1.GetClusterFromMetadata(r.ControllerContext, r.Client, vsphereVM.ObjectMeta)
+	if err != nil {
+		r.Logger.Info("VsphereVM is missing cluster label or cluster does not exist")
+		return session.GetOrCreate(r.Context,
+			params)
+	}
+
+	key := client.ObjectKey{
+		Namespace: cluster.Namespace,
+		Name:      cluster.Spec.InfrastructureRef.Name,
+	}
+	vsphereCluster := &infrav1.VSphereCluster{}
+	err = r.Client.Get(r, key, vsphereCluster)
+	if err != nil {
+		r.Logger.Info("VSphereCluster couldn't be retrieved")
+		return session.GetOrCreate(r.Context,
+			params)
+	}
+
+	if vsphereCluster.Spec.IdentityRef != nil {
+		creds, err := identity.GetCredentials(ctx, r.Client, vsphereCluster, r.Namespace)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to retrieve credentials from IdentityRef")
+		}
+		params = params.WithUserInfo(creds.Username, creds.Password)
+		return session.GetOrCreate(r.Context,
+			params)
+	}
+
+	// Fallback to using credentials provided to the manager
+	return session.GetOrCreate(r.Context,
+		params)
 }

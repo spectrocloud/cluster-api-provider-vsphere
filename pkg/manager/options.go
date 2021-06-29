@@ -47,6 +47,10 @@ type Options struct {
 	// LeaderElectionEnabled is a flag that enables leader election.
 	LeaderElectionEnabled bool
 
+	// EnableKeepAlive is a session feature to enable keep alive handler
+	// for better load management on vSphere api server
+	EnableKeepAlive bool
+
 	// LeaderElectionID is the name of the config map to use as the
 	// locking resource when configuring leader election.
 	LeaderElectionID string
@@ -98,8 +102,16 @@ type Options struct {
 	// endpoints.
 	Password string
 
+	// KeepAliveDuration is the idle time interval in between send() requests
+	// in keepalive handler
+	KeepAliveDuration time.Duration
+
 	// WebhookPort is the port that the webhook server serves at.
 	WebhookPort int
+
+	// CertDir is the directory that contains the server key and certificate.
+	// TODO (srm09): Use CertDir from controller-runtime instead
+	CertDir string
 
 	// CredentialsFile is the file that contains credentials of CAPV
 	CredentialsFile string
