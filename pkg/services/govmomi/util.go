@@ -137,7 +137,7 @@ func reconcileInFlightTask(ctx *context.VMContext) (bool, error) {
 		ctx.VSphereVM.Status.TaskRef = ""
 		return false, nil
 	case types.TaskInfoStateError:
-		logger.Info("task failed", "description-id", task.Info.DescriptionId)
+		logger.Error("task failed", "description-id", task.Info.DescriptionId)
 
 		// NOTE: When a task fails there is not simple way to understand which operation is failing (e.g. cloning or powering on)
 		// so we are reporting failures using a dedicated reason until we find a better solution.
