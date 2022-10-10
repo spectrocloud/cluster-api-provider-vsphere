@@ -161,7 +161,7 @@ func checkAndRetryTask(ctx context.Context, vmCtx *capvcontext.VMContext, task *
 		vmCtx.VSphereVM.Status.TaskRef = ""
 		return false, nil
 	case types.TaskInfoStateError:
-		log.Info("Task found: Task failed")
+		log.Error(errors.New("task failed"), "description-id", task.Info.DescriptionId)
 
 		// NOTE: When a task fails there is no simple way to understand which operation is failing (e.g. cloning or powering on)
 		// so we are reporting failures using a dedicated reason until we find a better solution.
