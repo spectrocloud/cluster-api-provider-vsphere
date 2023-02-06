@@ -401,7 +401,11 @@ func (v *VimMachineService) generateOverrideFunc(ctx *context.VIMMachineContext)
 	// Use the failureDomain name to fetch the vSphereDeploymentZone object
 	var vsphereDeploymentZone infrav1.VSphereDeploymentZone
 	if err := ctx.Client.Get(ctx, client.ObjectKey{Name: *failureDomainName}, &vsphereDeploymentZone); err != nil {
-		ctx.Logger.Error(err, "unable to fetch vsphere deployment zone", "name", *failureDomainName)
+		if apierrors.IsNotFound(err) {
+			ctx.Logger.V(4).Info("unable to fetch vsphere deployment zone", "name", *failureDomainName)
+		} else {
+			ctx.Logger.Error(err, "unable to fetch vsphere deployment zone", "name", *failureDomainName)
+		}
 		return nil, false
 	}
 
