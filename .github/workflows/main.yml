@@ -10,7 +10,7 @@ on:
 jobs:
   builder:
     # edge-runner machine group is a bunch of machines in US Datacenter
-    runs-on: linux
+    runs-on: ubuntu-latest
     # Initialize all secrets required for the job
     # Ensure that the credentials are provided as encrypted secrets
     env:
@@ -18,6 +18,7 @@ jobs:
       DEV_REGISTRY: gcr.io/spectro-images-public/release/cluster-api-vsphere
 
     steps:
+      - uses: docker-practice/actions-setup-docker@master
       - uses: actions/checkout@v3
       - name: Build the Image
         run: |
