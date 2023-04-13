@@ -93,6 +93,9 @@ PULL_POLICY ?= Always
 # Hosts running SELinux need :z added to volume mounts
 SELINUX_ENABLED := $(shell cat /sys/fs/selinux/enforce 2> /dev/null || echo 0)
 
+# Fips Flags
+FIPS_ENABLE ?= ""
+
 ifeq ($(SELINUX_ENABLED),1)
   DOCKER_VOL_OPTS?=:z
 endif
@@ -460,7 +463,7 @@ check: ## Verify and lint the project
 
 .PHONY: docker-build
 docker-build: ## Build the docker image for controller-manager
-	docker buildx build --platform linux/$(ARCH) --output=type=docker \
+	docker buildx build --build-arg CRYPTO_LIB=${FIPS_ENABLE} --platform linux/$(ARCH) --output=type=docker \
 		--pull --build-arg ldflags="$(LDFLAGS)" \
 		-t $(DEV_CONTROLLER_IMG):$(DEV_TAG) .
 
