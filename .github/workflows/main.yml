@@ -1,0 +1,25 @@
+name: Release
+run-name: Release for Cluster API Vsphere ${{ github.event.inputs.release_version }}
+on:
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: 'Cluster API Version to Build'
+        required: true
+        default: '0.0.0'
+jobs:
+  builder:
+    # edge-runner machine group is a bunch of machines in US Datacenter
+    runs-on: linux
+    # Initialize all secrets required for the job
+    # Ensure that the credentials are provided as encrypted secrets
+    env:
+      SPECTRO_VERSION: ${{ github.event.inputs.release_version }}
+      DEV_REGISTRY: gcr.io/spectro-images-public/release/cluster-api-vsphere
+
+    steps:
+      - uses: actions/checkout@v3
+      - name: Build the Image
+        run: |
+          make docker-build
+          
