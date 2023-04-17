@@ -106,13 +106,19 @@ RELEASE_REGISTRY := gcr.io/cluster-api-provider-vsphere/release
 RELEASE_CONTROLLER_IMG := $(RELEASE_REGISTRY)/$(IMAGE_NAME)
 
 # Development Docker variables
+RELEASE_LOC := release
+ifeq ($(FIPS_ENABLE),yes)
+  RELEASE_LOC := release-fips
+endif
+
 SPECTRO_VERSION ?= 3.4.0-dev
-DEV_REGISTRY ?= gcr.io/spectro-dev-public/release/cluster-api-vsphere
+DEV_REGISTRY ?= gcr.io/spectro-dev-public/${RELEASE_LOC}/cluster-api-vsphere
 DEV_CONTROLLER_IMG ?= $(DEV_REGISTRY)/cluster-api-vsphere-controller
 DEV_TAG ?= v1.3.1-spectro-${SPECTRO_VERSION}
 
 # Set build time variables including git version details
 LDFLAGS := $(shell hack/version.sh)
+
 
 ## --------------------------------------
 ## Help
@@ -464,6 +470,9 @@ docker-build: ## Build the docker image for controller-manager
 	docker buildx build --build-arg CRYPTO_LIB=${FIPS_ENABLE} --platform linux/$(ARCH) --output=type=docker \
 		--pull --build-arg ldflags="$(LDFLAGS)" \
 		-t $(DEV_CONTROLLER_IMG):$(DEV_TAG) .
+
+docker-push-gcr: 
+	docker push $(DEV_CONTROLLER_IMG):$(DEV_TAG)
 
 .PHONY: docker-push
 docker-push: ## Push the docker image

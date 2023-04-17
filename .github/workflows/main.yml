@@ -15,12 +15,33 @@ jobs:
     # Ensure that the credentials are provided as encrypted secrets
     env:
       SPECTRO_VERSION: ${{ github.event.inputs.release_version }}
-      DEV_REGISTRY: gcr.io/spectro-images-public/release/cluster-api-vsphere
-
     steps:
-      - uses: docker-practice/actions-setup-docker@master
-      - uses: actions/checkout@v3
-      - name: Build the Image
+      - 
+        uses: docker-practice/actions-setup-docker@master
+      - 
+        uses: actions/checkout@v3
+      -
+        name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+      - 
+        name: Login to private registry
+        uses: docker/login-action@v1
+        with:
+          registry: ${{ secrets.REGISTRY_URL }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+      - 
+        name: Build Image
+        env:
+          DEV_REGISTRY: gcr.io/spectro-images-public/release/cluster-api-vsphere
         run: |
           make docker-build
-          
+          make docker-push-gcr
+      - 
+        name: Build Image - FIPS Mode 
+        env: 
+          FIPS_ENABLE: yes
+          DEV_REGISTRY: gcr.io/spectro-images-public/release-fips/cluster-api-vsphere
+        run: |
+          make docker-build
+          make docker-push-gcr
