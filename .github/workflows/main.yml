@@ -52,8 +52,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
         with:
-          tag_name: v${{ github.event.inputs.release_version }}
-          release_name: Release v${{ github.event.inputs.release_version }}
+          tag_name: spectro-v${{ github.event.inputs.release_version }}
+          release_name: Release spectro-v${{ github.event.inputs.release_version }}
           body: |
             Release version ${{ github.event.inputs.release_version }}
           draft: false
