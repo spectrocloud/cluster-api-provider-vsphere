@@ -270,6 +270,7 @@ func (vms *VMService) reconcilePowerState(ctx *virtualMachineContext) (bool, err
 		task, err := ctx.Obj.PowerOn(ctx)
 		if err != nil {
 			conditions.MarkFalse(ctx.VSphereVM, infrav1.VMProvisionedCondition, infrav1.PoweringOnFailedReason, clusterv1.ConditionSeverityWarning, err.Error())
+			ctx.Logger.Error(err, "Failed to trigger power on operation for vm %s", ctx)
 			return false, errors.Wrapf(err, "failed to trigger power on op for vm %s", ctx)
 		}
 		conditions.MarkFalse(ctx.VSphereVM, infrav1.VMProvisionedCondition, infrav1.PoweringOnReason, clusterv1.ConditionSeverityInfo, "")
