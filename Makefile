@@ -93,6 +93,9 @@ PULL_POLICY ?= Always
 # Hosts running SELinux need :z added to volume mounts
 SELINUX_ENABLED := $(shell cat /sys/fs/selinux/enforce 2> /dev/null || echo 0)
 
+# Fips Flags
+FIPS_ENABLE ?= ""
+
 ifeq ($(SELINUX_ENABLED),1)
   DOCKER_VOL_OPTS?=:z
 endif
@@ -103,15 +106,19 @@ RELEASE_REGISTRY := gcr.io/cluster-api-provider-vsphere/release
 RELEASE_CONTROLLER_IMG := $(RELEASE_REGISTRY)/$(IMAGE_NAME)
 
 # Development Docker variables
-#DEV_REGISTRY ?= gcr.io/spectro-images-public/release/cluster-api-provider-vsphere
-DEV_REGISTRY ?= gcr.io/spectro-dev-public/release/cluster-api-vsphere
+RELEASE_LOC := release
+ifeq ($(FIPS_ENABLE),yes)
+  RELEASE_LOC := release-fips
+endif
+
+SPECTRO_VERSION ?= 3.4.0-dev
+DEV_REGISTRY ?= gcr.io/spectro-dev-public/${RELEASE_LOC}/cluster-api-vsphere
 DEV_CONTROLLER_IMG ?= $(DEV_REGISTRY)/cluster-api-vsphere-controller
-#DEV_TAG ?= spectro-v0.8.1-20220120
-DEV_TAG ?= spectro-v1.3.1-v1beta1-20230317.1316
-#DEV_TAG ?= dev
+DEV_TAG ?= v1.3.1-spectro-${SPECTRO_VERSION}
 
 # Set build time variables including git version details
 LDFLAGS := $(shell hack/version.sh)
+
 
 ## --------------------------------------
 ## Help
@@ -460,9 +467,12 @@ check: ## Verify and lint the project
 
 .PHONY: docker-build
 docker-build: ## Build the docker image for controller-manager
-	docker buildx build --platform linux/$(ARCH) --output=type=docker \
+	docker buildx build --build-arg CRYPTO_LIB=${FIPS_ENABLE} --platform linux/$(ARCH) --output=type=docker \
 		--pull --build-arg ldflags="$(LDFLAGS)" \
 		-t $(DEV_CONTROLLER_IMG):$(DEV_TAG) .
+
+docker-push-gcr: 
+	docker push $(DEV_CONTROLLER_IMG):$(DEV_TAG)
 
 .PHONY: docker-push
 docker-push: ## Push the docker image

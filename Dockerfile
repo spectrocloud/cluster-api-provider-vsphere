@@ -23,6 +23,10 @@ WORKDIR /workspace
 ARG goproxy=https://proxy.golang.org
 ENV GOPROXY=${goproxy}
 
+# FIPS
+ARG CRYPTO_LIB
+ENV GOEXPERIMENT=${CRYPTO_LIB:+boringcrypto}
+
 # Copy the Go Modules manifests
 COPY go.mod go.mod
 COPY go.sum go.sum
