@@ -15,9 +15,12 @@
 # limitations under the License.
 
 # Build the manager binary
-ARG GOLANG_VERSION=golang:1.19.8
+ARG GOLANG_VERSION=golang:1.19.10-alpine3.18
 FROM --platform=${BUILDPLATFORM} ${GOLANG_VERSION} as builder
 WORKDIR /workspace
+
+RUN apk update
+RUN apk add git gcc g++ curl
 
 # Run this with docker build --build_arg $(go env GOPROXY) to override the goproxy
 ARG goproxy=https://proxy.golang.org
@@ -43,9 +46,16 @@ ARG ldflags
 RUN --mount=type=bind,target=. \
     --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
+    if [ ${CRYPTO_LIB} ]; \
+    then \
+    CGO_ENABLED=1 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -a -ldflags "${ldflags} -linkmode=external -extldflags '-static'" \
+    -o /out/manager . ;\
+    else \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -a -ldflags "${ldflags} -extldflags '-static'" \
-    -o /out/manager .
+    -o /out/manager . ;\
+    fi
 
 # Copy the controller-manager into a thin image
 ARG TARGETPLATFORM
