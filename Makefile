@@ -111,7 +111,7 @@ ifeq ($(FIPS_ENABLE),yes)
   RELEASE_LOC := release-fips
 endif
 
-SPECTRO_VERSION ?= 3.4.0-dev
+SPECTRO_VERSION ?= 4.0.0-dev
 DEV_REGISTRY ?= gcr.io/spectro-dev-public/${RELEASE_LOC}/cluster-api-vsphere
 DEV_CONTROLLER_IMG ?= $(DEV_REGISTRY)/cluster-api-vsphere-controller
 DEV_TAG ?= v1.3.1-spectro-${SPECTRO_VERSION}
