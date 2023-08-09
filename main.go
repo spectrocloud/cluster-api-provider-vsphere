@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"math/rand"
@@ -34,6 +35,7 @@ import (
 	ctrlmgr "sigs.k8s.io/controller-runtime/pkg/manager"
 	ctrlsig "sigs.k8s.io/controller-runtime/pkg/manager/signals"
 
+	cliflag "k8s.io/component-base/cli/flag"
 	"sigs.k8s.io/cluster-api-provider-vsphere/apis/v1beta1"
 	vmwarev1b1 "sigs.k8s.io/cluster-api-provider-vsphere/apis/vmware/v1beta1"
 	"sigs.k8s.io/cluster-api-provider-vsphere/controllers"
@@ -43,6 +45,11 @@ import (
 	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/manager"
 	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/version"
 )
+
+type TLSOptions struct {
+	TLSMinVersion   string
+	TLSCipherSuites []string
+}
 
 var (
 	setupLog = ctrllog.Log.WithName("entrypoint")
@@ -57,6 +64,7 @@ var (
 	defaultWebhookPort       = manager.DefaultWebhookServiceContainerPort
 	defaultEnableKeepAlive   = constants.DefaultEnableKeepAlive
 	defaultKeepAliveDuration = constants.DefaultKeepAliveDuration
+	tlsOptions               = TLSOptions{}
 )
 
 func main() {
@@ -160,6 +168,14 @@ func main() {
 
 	managerOpts.SyncPeriod = &syncPeriod
 
+	tlsOptionOverrides, err := GetTLSOptionOverrideFuncs(tlsOptions)
+	if err != nil {
+		setupLog.Error(err, "unable to add TLS settings to the webhook server")
+		os.Exit(1)
+	}
+
+	managerOpts.TLSOpts = tlsOptionOverrides
+
 	// Create a function that adds all of the controllers and webhooks to the
 	// manager.
 	addToManager := func(ctx *context.ControllerManagerContext, mgr ctrlmgr.Manager) error {
@@ -220,6 +236,32 @@ func main() {
 	defer func(watch *fsnotify.Watcher) {
 		_ = watch.Close()
 	}(watch)
+}
+
+// GetTLSOptionOverrideFuncs returns a list of TLS configuration overrides to be used
+// by the webhook server.
+func GetTLSOptionOverrideFuncs(options TLSOptions) ([]func(*tls.Config), error) {
+	var tlsOptions []func(config *tls.Config)
+	tlsVersion, err := cliflag.TLSVersion(options.TLSMinVersion)
+	if err != nil {
+		return nil, err
+	}
+	tlsOptions = append(tlsOptions, func(cfg *tls.Config) {
+		cfg.MinVersion = tlsVersion
+		cfg.CipherSuites = GetDefaultTLSCipherSuits()
+		cfg.MaxVersion = tlsVersion
+	})
+
+	return tlsOptions, nil
+}
+
+func GetDefaultTLSCipherSuits() []uint16 {
+	return []uint16{
+		tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+		tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+		tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+		tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+	}
 }
 
 func setupVAPIControllers(ctx *context.ControllerManagerContext, mgr ctrlmgr.Manager) error {
