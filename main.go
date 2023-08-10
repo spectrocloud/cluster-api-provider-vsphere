@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/cluster-api-provider-vsphere/feature"
 	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/constants"
 	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/context"
+	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/flags"
 	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/manager"
 	"sigs.k8s.io/cluster-api-provider-vsphere/pkg/version"
 )
@@ -242,6 +243,7 @@ func main() {
 // by the webhook server.
 func GetTLSOptionOverrideFuncs(options TLSOptions) ([]func(*tls.Config), error) {
 	var tlsOptions []func(config *tls.Config)
+	var insecureSkipVerify bool
 	tlsVersion, err := cliflag.TLSVersion(options.TLSMinVersion)
 	if err != nil {
 		return nil, err
@@ -249,7 +251,8 @@ func GetTLSOptionOverrideFuncs(options TLSOptions) ([]func(*tls.Config), error) 
 	tlsOptions = append(tlsOptions, func(cfg *tls.Config) {
 		cfg.MinVersion = tlsVersion
 		cfg.CipherSuites = GetDefaultTLSCipherSuits()
-		cfg.MaxVersion = tlsVersion
+		cfg.MaxVersion = flags.GetTlsMaxVersion()
+		cfg.InsecureSkipVerify = flags.InsecureSkipVerify(insecureSkipVerify)
 	})
 
 	return tlsOptions, nil
