@@ -46,10 +46,10 @@ import (
 type VMService struct{}
 
 // ReconcileVM makes sure that the VM is in the desired state by:
-//   1. Creating the VM if it does not exist, then...
-//   2. Updating the VM with the bootstrap data, such as the cloud-init meta and user data, before...
-//   3. Powering on the VM, and finally...
-//   4. Returning the real-time state of the VM to the caller
+//  1. Creating the VM if it does not exist, then...
+//  2. Updating the VM with the bootstrap data, such as the cloud-init meta and user data, before...
+//  3. Powering on the VM, and finally...
+//  4. Returning the real-time state of the VM to the caller
 func (vms *VMService) ReconcileVM(ctx *context.VMContext) (vm infrav1.VirtualMachine, _ error) {
 	// Initialize the result.
 	vm = infrav1.VirtualMachine{
@@ -101,6 +101,7 @@ func (vms *VMService) ReconcileVM(ctx *context.VMContext) (vm infrav1.VirtualMac
 		// Create the VM.
 		err = createVM(ctx, bootstrapData)
 		if err != nil {
+			ctx.Logger.Error(err, "Failed to create VM")
 			conditions.MarkFalse(ctx.VSphereVM, infrav1.VMProvisionedCondition, infrav1.CloningFailedReason, clusterv1.ConditionSeverityWarning, err.Error())
 		}
 		return vm, nil
