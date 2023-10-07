@@ -15,20 +15,22 @@
 # limitations under the License.
 
 # Build the manager binary
-ARG GOLANG_VERSION=golang:1.19.10-alpine3.18
-FROM --platform=${BUILDPLATFORM} ${GOLANG_VERSION} as builder
-WORKDIR /workspace
-
-RUN apk update
-RUN apk add git gcc g++ curl
-
+ARG BUILDER_GOLANG_VERSION
+# First stage: build the executable.
+FROM gcr.io/spectro-images-public/golang:${BUILDER_GOLANG_VERSION}-alpine as toolchain
 # Run this with docker build --build_arg $(go env GOPROXY) to override the goproxy
 ARG goproxy=https://proxy.golang.org
-ENV GOPROXY=${goproxy}
+ENV GOPROXY=$goproxy
 
 # FIPS
 ARG CRYPTO_LIB
 ENV GOEXPERIMENT=${CRYPTO_LIB:+boringcrypto}
+
+FROM toolchain as builder
+WORKDIR /workspace
+
+RUN apk update
+RUN apk add git gcc g++ curl
 
 # Copy the Go Modules manifests
 COPY go.mod go.mod
@@ -36,30 +38,30 @@ COPY go.sum go.sum
 
 # Cache deps before building and copying source so that we don't need to re-download as much
 # and so that source changes don't invalidate our downloaded layer
-RUN --mount=type=cache,target=/go/pkg/mod \
-    go mod download
+RUN  --mount=type=cache,target=/root/.local/share/golang \
+     --mount=type=cache,target=/go/pkg/mod \
+     go mod download
+
+# Copy the sources
+COPY ./ ./
 
 # Build
-ARG TARGETOS
-ARG TARGETARCH
+ARG ARCH
 ARG ldflags
 RUN --mount=type=bind,target=. \
     --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     if [ ${CRYPTO_LIB} ]; \
     then \
-    CGO_ENABLED=1 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
-    go build -a -ldflags "${ldflags} -linkmode=external -extldflags '-static'" \
-    -o /out/manager . ;\
+      GOARCH=${ARCH} go-build-fips.sh -a -o manager . ;\
     else \
-    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
-    go build -a -ldflags "${ldflags} -extldflags '-static'" \
-    -o /out/manager . ;\
+      GOARCH=${ARCH} go-build-static.sh -a -o manager . ;\
     fi
+RUN if [ "${CRYPTO_LIB}" ]; then assert-static.sh manager; fi
+RUN if [ "${CRYPTO_LIB}" ]; then assert-fips.sh manager; fi
+RUN scan-govulncheck.sh manager
 
-# Copy the controller-manager into a thin image
-ARG TARGETPLATFORM
-FROM --platform=${TARGETPLATFORM} gcr.io/distroless/static:nonroot
+FROM gcr.io/distroless/static:nonroot
 WORKDIR /
 COPY --from=builder /out/manager .
 # Use uid of nonroot user (65532) because kubernetes expects numeric user when applying PSPs
