@@ -49,7 +49,6 @@ COPY ./ ./
 ARG ARCH
 ARG ldflags
 RUN --mount=type=bind,target=. \
-    --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     if [ ${CRYPTO_LIB} ]; \
     then \
