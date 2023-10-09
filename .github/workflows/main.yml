@@ -34,7 +34,8 @@ jobs:
         run: |
           echo "Tag already exists for v${{ github.event.inputs.release_version }}-spectro..."
           exit 1
-      - if: ${{ github.event.inputs.rel_type == 'rc' }}
+      -
+        if: ${{ github.event.inputs.rel_type == 'rc' }}
         run: |
           echo "LEGACY_REGISTRY=gcr.io/spectro-dev-public/release/cluster-api-vsphere" >> $GITHUB_ENV
           echo "FIPS_REGISTRY=gcr.io/spectro-dev-public/release-fips/cluster-api-vsphere" >> $GITHUB_ENV
@@ -62,6 +63,7 @@ jobs:
         env: 
           FIPS_ENABLE: yes
           DEV_REGISTRY: ${{ env.FIPS_REGISTRY }}
+          ALL_ARCH: amd64
         run: |
           make docker-build
           make docker-push-gcr
