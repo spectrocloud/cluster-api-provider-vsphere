@@ -38,9 +38,8 @@ COPY go.sum go.sum
 
 # Cache deps before building and copying source so that we don't need to re-download as much
 # and so that source changes don't invalidate our downloaded layer
-RUN  --mount=type=cache,target=/root/.local/share/golang \
-     --mount=type=cache,target=/go/pkg/mod \
-     go mod download
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
 
 # Copy the sources
 COPY ./ ./
@@ -49,6 +48,7 @@ COPY ./ ./
 ARG ARCH
 ARG ldflags
 RUN --mount=type=bind,target=. \
+    --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     if [ ${CRYPTO_LIB} ]; \
     then \
