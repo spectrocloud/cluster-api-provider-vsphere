@@ -1,6 +1,6 @@
 module sigs.k8s.io/cluster-api-provider-vsphere
 
-go 1.19
+go 1.21
 
 require (
 	github.com/antihax/optional v1.0.0

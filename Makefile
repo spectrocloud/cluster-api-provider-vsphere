@@ -84,8 +84,8 @@ RELEASE_DIR := out
 BUILD_DIR := .build
 OVERRIDES_DIR := $(HOME)/.cluster-api/overrides/infrastructure-vsphere/$(VERSION)
 
-# Architecture variables
-ARCH ?= $(shell go env GOARCH)
+ARCH ?= amd64
+ALL_ARCH = amd64 arm64
 
 # Common docker variables
 IMAGE_NAME ?= manager
@@ -110,6 +110,9 @@ RELEASE_LOC := release
 ifeq ($(FIPS_ENABLE),yes)
   RELEASE_LOC := release-fips
 endif
+
+BUILDER_GOLANG_VERSION ?= 1.21
+BUILD_ARGS = --build-arg CRYPTO_LIB=${FIPS_ENABLE} --build-arg BUILDER_GOLANG_VERSION=${BUILDER_GOLANG_VERSION}
 
 SPECTRO_VERSION ?= 4.0.0-dev
 DEV_REGISTRY ?= gcr.io/spectro-dev-public/${RELEASE_LOC}/cluster-api-vsphere
@@ -467,7 +470,7 @@ check: ## Verify and lint the project
 
 .PHONY: docker-build
 docker-build: ## Build the docker image for controller-manager
-	docker buildx build --build-arg CRYPTO_LIB=${FIPS_ENABLE} --platform linux/$(ARCH) --output=type=docker \
+	docker buildx build --load --platform linux/${ARCH} ${BUILD_ARGS} --build-arg ARCH=$(ARCH) --output=type=docker \
 		--pull --build-arg ldflags="$(LDFLAGS)" \
 		-t $(DEV_CONTROLLER_IMG):$(DEV_TAG) .
 
