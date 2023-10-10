@@ -38,9 +38,8 @@ COPY go.sum go.sum
 
 # Cache deps before building and copying source so that we don't need to re-download as much
 # and so that source changes don't invalidate our downloaded layer
-RUN  --mount=type=cache,target=/root/.local/share/golang \
-     --mount=type=cache,target=/go/pkg/mod \
-     go mod download
+
+RUN go mod download
 
 # Copy the sources
 COPY ./ ./
@@ -48,10 +47,7 @@ COPY ./ ./
 # Build
 ARG ARCH
 ARG ldflags
-RUN --mount=type=bind,target=. \
-    --mount=type=cache,target=/root/.cache/go-build \
-    --mount=type=cache,target=/go/pkg/mod \
-    if [ ${CRYPTO_LIB} ]; \
+RUN if [ ${CRYPTO_LIB} ]; \
     then \
       GOARCH=${ARCH} go-build-fips.sh -a -o manager . ;\
     else \
@@ -63,7 +59,7 @@ RUN scan-govulncheck.sh manager
 
 FROM gcr.io/distroless/static:nonroot
 WORKDIR /
-COPY --from=builder /out/manager .
+COPY --from=builder /workspace/manager .
 # Use uid of nonroot user (65532) because kubernetes expects numeric user when applying PSPs
 USER 65532
 ENTRYPOINT ["/manager"]
