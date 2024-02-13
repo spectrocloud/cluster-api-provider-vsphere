@@ -2,12 +2,12 @@
 
 package flags
 
-import _ "crypto/tls/fipsonly"
+import "crypto/tls"
 
 func InsecureSkipVerify(insecureSkipVerify bool) bool {
 	return false
 }
 
 func GetTlsMaxVersion() uint16 {
-	return tls.VersionTLS12
+	return tls.VersionTLS13
 }
