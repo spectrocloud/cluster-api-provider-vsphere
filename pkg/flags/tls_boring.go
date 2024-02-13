@@ -2,7 +2,7 @@
 
 package flags
 
-import "crypto/tls"
+import _ "crypto/tls/fipsonly"
 
 func InsecureSkipVerify(insecureSkipVerify bool) bool {
 	return false
