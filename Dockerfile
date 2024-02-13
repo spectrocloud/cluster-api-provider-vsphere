@@ -29,6 +29,9 @@ ENV GOEXPERIMENT=${CRYPTO_LIB:+boringcrypto}
 FROM toolchain as builder
 WORKDIR /workspace
 
+ARG CRYPTO_LIB
+ENV GOEXPERIMENT=${CRYPTO_LIB:+boringcrypto}
+
 RUN apk update
 RUN apk add git gcc g++ curl binutils-gold
 
@@ -50,8 +53,10 @@ ARG ldflags
 RUN if [ ${CRYPTO_LIB} ]; \
     then \
       GOARCH=${ARCH} go-build-fips.sh -a -o manager . ;\
+      echo GOEXPERIMENT=${GOEXPERIMENT} ;\
     else \
       GOARCH=${ARCH} go-build-static.sh -a -o manager . ;\
+      echo GOEXPERIMENT=${GOEXPERIMENT} ;\
     fi
 RUN if [ "${CRYPTO_LIB}" ]; then assert-static.sh manager; fi
 RUN if [ "${CRYPTO_LIB}" ]; then assert-fips.sh manager; fi
