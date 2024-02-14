@@ -17,7 +17,6 @@ limitations under the License.
 package helpers
 
 import (
-	_ "crypto/tls/fipsonly"
 	"net"
 	"os"
 	"path"
