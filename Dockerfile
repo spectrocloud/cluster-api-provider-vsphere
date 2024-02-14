@@ -52,10 +52,10 @@ ARG ARCH
 ARG ldflags
 RUN if [ ${CRYPTO_LIB} ]; \
     then \
-      GOARCH=${ARCH} go-build-fips.sh -a -o manager . ;\
+      GOARCH=${ARCH} go-build-fips.sh -a -o manager sigs.k8s.io/cluster-api-provider-vsphere ;\
       echo GOEXPERIMENT=${GOEXPERIMENT} ;\
     else \
-      GOARCH=${ARCH} go-build-static.sh -a -o manager . ;\
+      GOARCH=${ARCH} go-build-static.sh -a -o manager sigs.k8s.io/cluster-api-provider-vsphere ;\
       echo GOEXPERIMENT=${GOEXPERIMENT} ;\
     fi
 RUN if [ "${CRYPTO_LIB}" ]; then assert-static.sh manager; fi
