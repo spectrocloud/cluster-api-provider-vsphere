@@ -1,6 +1,8 @@
 module sigs.k8s.io/cluster-api-provider-vsphere
 
-go 1.21
+go 1.22
+
+toolchain go1.22.4
 
 require (
 	github.com/antihax/optional v1.0.0
@@ -17,7 +19,7 @@ require (
 	github.com/vmware-tanzu/vm-operator/external/ncp v0.0.0-20211209213435-0f4ab286f64f
 	github.com/vmware-tanzu/vm-operator/external/tanzu-topology v0.0.0-20211209213435-0f4ab286f64f
 	github.com/vmware/govmomi v0.27.1
-	golang.org/x/crypto v0.14.0
+	golang.org/x/crypto v0.21.0
 	golang.org/x/mod v0.8.0
 	golang.org/x/oauth2 v0.0.0-20220909003341-f21342109be1
 	gopkg.in/gcfg.v1 v1.2.3
@@ -45,7 +47,7 @@ require (
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/onsi/ginkgo/v2 v2.6.0 // indirect
 	github.com/pelletier/go-toml/v2 v2.0.5 // indirect
-	golang.org/x/net v0.17.0 // indirect
+	golang.org/x/net v0.23.0 // indirect
 )
 
 require (
@@ -64,7 +66,7 @@ require (
 	github.com/coredns/caddy v1.1.0 // indirect
 	github.com/coredns/corefile-migration v1.0.20 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/docker/distribution v2.8.1+incompatible // indirect
+	github.com/docker/distribution v2.8.2-beta.1+incompatible // indirect
 	github.com/docker/docker v20.10.21+incompatible // indirect
 	github.com/docker/go-connections v0.4.0 // indirect
 	github.com/docker/go-units v0.4.0 // indirect
@@ -115,9 +117,9 @@ require (
 	github.com/stoewer/go-strcase v1.2.0 // indirect
 	github.com/subosito/gotenv v1.4.1 // indirect
 	github.com/valyala/fastjson v1.6.3 // indirect
-	golang.org/x/sys v0.13.0 // indirect
-	golang.org/x/term v0.13.0 // indirect
-	golang.org/x/text v0.13.0 // indirect
+	golang.org/x/sys v0.18.0 // indirect
+	golang.org/x/term v0.18.0 // indirect
+	golang.org/x/text v0.14.0 // indirect
 	golang.org/x/time v0.0.0-20220722155302-e5dcc9cfc0b9 // indirect
 	gomodules.xyz/jsonpatch/v2 v2.2.0 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
