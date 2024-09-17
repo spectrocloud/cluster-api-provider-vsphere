@@ -35,7 +35,6 @@ import (
 	ctrlmgr "sigs.k8s.io/controller-runtime/pkg/manager"
 	ctrlsig "sigs.k8s.io/controller-runtime/pkg/manager/signals"
 
-	cliflag "k8s.io/component-base/cli/flag"
 	"sigs.k8s.io/cluster-api-provider-vsphere/apis/v1beta1"
 	vmwarev1b1 "sigs.k8s.io/cluster-api-provider-vsphere/apis/vmware/v1beta1"
 	"sigs.k8s.io/cluster-api-provider-vsphere/controllers"
@@ -244,12 +243,12 @@ func main() {
 func GetTLSOptionOverrideFuncs(options TLSOptions) ([]func(*tls.Config), error) {
 	var tlsOptions []func(config *tls.Config)
 	var insecureSkipVerify bool
-	tlsVersion, err := cliflag.TLSVersion(options.TLSMinVersion)
-	if err != nil {
-		return nil, err
-	}
+	//tlsVersion, err := cliflag.TLSVersion(options.TLSMinVersion)
+	//if err != nil {
+	//	return nil, err
+	//}
 	tlsOptions = append(tlsOptions, func(cfg *tls.Config) {
-		cfg.MinVersion = tlsVersion
+		cfg.MinVersion = tls.VersionTLS12
 		cfg.MaxVersion = flags.GetTlsMaxVersion()
 		if cfg.MaxVersion <= tls.VersionTLS12 {
 			cfg.CipherSuites = GetDefaultTLSCipherSuits()
