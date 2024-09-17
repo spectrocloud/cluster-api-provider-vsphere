@@ -35,7 +35,6 @@ import (
 	ctrlmgr "sigs.k8s.io/controller-runtime/pkg/manager"
 	ctrlsig "sigs.k8s.io/controller-runtime/pkg/manager/signals"
 
-	cliflag "k8s.io/component-base/cli/flag"
 	"sigs.k8s.io/cluster-api-provider-vsphere/apis/v1beta1"
 	vmwarev1b1 "sigs.k8s.io/cluster-api-provider-vsphere/apis/vmware/v1beta1"
 	"sigs.k8s.io/cluster-api-provider-vsphere/controllers"
@@ -169,7 +168,7 @@ func main() {
 
 	managerOpts.SyncPeriod = &syncPeriod
 
-	tlsOptionOverrides, err := GetTLSOptionOverrideFuncs(tlsOptions)
+	tlsOptionOverrides, err := GetTLSOptionOverrideFuncs()
 	if err != nil {
 		setupLog.Error(err, "unable to add TLS settings to the webhook server")
 		os.Exit(1)
@@ -241,17 +240,20 @@ func main() {
 
 // GetTLSOptionOverrideFuncs returns a list of TLS configuration overrides to be used
 // by the webhook server.
-func GetTLSOptionOverrideFuncs(options TLSOptions) ([]func(*tls.Config), error) {
+func GetTLSOptionOverrideFuncs() ([]func(*tls.Config), error) {
 	var tlsOptions []func(config *tls.Config)
 	var insecureSkipVerify bool
-	tlsVersion, err := cliflag.TLSVersion(options.TLSMinVersion)
-	if err != nil {
-		return nil, err
-	}
+
 	tlsOptions = append(tlsOptions, func(cfg *tls.Config) {
-		cfg.MinVersion = tlsVersion
-		cfg.CipherSuites = GetDefaultTLSCipherSuits()
+		// Set minimum TLS version to TLS 1.2
+		cfg.MinVersion = tls.VersionTLS12
 		cfg.MaxVersion = flags.GetTlsMaxVersion()
+		if cfg.MaxVersion <= tls.VersionTLS12 {
+			cfg.CipherSuites = GetDefaultTLSCipherSuits()
+		} else {
+			// TLS 1.3 should use its own cipher suites automatically
+			cfg.CipherSuites = nil
+		}
 		cfg.InsecureSkipVerify = flags.InsecureSkipVerify(insecureSkipVerify)
 	})
 
