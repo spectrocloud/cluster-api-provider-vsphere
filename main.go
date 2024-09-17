@@ -35,6 +35,7 @@ import (
 	ctrlmgr "sigs.k8s.io/controller-runtime/pkg/manager"
 	ctrlsig "sigs.k8s.io/controller-runtime/pkg/manager/signals"
 
+	cliflag "k8s.io/component-base/cli/flag"
 	"sigs.k8s.io/cluster-api-provider-vsphere/apis/v1beta1"
 	vmwarev1b1 "sigs.k8s.io/cluster-api-provider-vsphere/apis/vmware/v1beta1"
 	"sigs.k8s.io/cluster-api-provider-vsphere/controllers"
@@ -168,7 +169,7 @@ func main() {
 
 	managerOpts.SyncPeriod = &syncPeriod
 
-	tlsOptionOverrides, err := GetTLSOptionOverrideFuncs()
+	tlsOptionOverrides, err := GetTLSOptionOverrideFuncs(tlsOptions)
 	if err != nil {
 		setupLog.Error(err, "unable to add TLS settings to the webhook server")
 		os.Exit(1)
@@ -240,21 +241,17 @@ func main() {
 
 // GetTLSOptionOverrideFuncs returns a list of TLS configuration overrides to be used
 // by the webhook server.
-func GetTLSOptionOverrideFuncs() ([]func(*tls.Config), error) {
+func GetTLSOptionOverrideFuncs(options TLSOptions) ([]func(*tls.Config), error) {
 	var tlsOptions []func(config *tls.Config)
 	var insecureSkipVerify bool
-
+	tlsVersion, err := cliflag.TLSVersion(options.TLSMinVersion)
+	if err != nil {
+		return nil, err
+	}
 	tlsOptions = append(tlsOptions, func(cfg *tls.Config) {
-		// Set minimum TLS version to TLS 1.2
-		cfg.MinVersion = tls.VersionTLS12
-		cfg.MaxVersion = flags.GetTlsMaxVersion()
+		cfg.MinVersion = tlsVersion
 		cfg.CipherSuites = GetDefaultTLSCipherSuits()
-		//if cfg.MaxVersion <= tls.VersionTLS12 {
-		//	cfg.CipherSuites = GetDefaultTLSCipherSuits()
-		//} else {
-		//	// TLS 1.3 should use its own cipher suites automatically
-		//	cfg.CipherSuites = nil
-		//}
+		cfg.MaxVersion = flags.GetTlsMaxVersion()
 		cfg.InsecureSkipVerify = flags.InsecureSkipVerify(insecureSkipVerify)
 	})
 
@@ -263,11 +260,6 @@ func GetTLSOptionOverrideFuncs() ([]func(*tls.Config), error) {
 
 func GetDefaultTLSCipherSuits() []uint16 {
 	return []uint16{
-		// TLS 1.3 cipher suites
-		tls.TLS_AES_128_GCM_SHA256,
-		tls.TLS_AES_256_GCM_SHA384,
-		tls.TLS_CHACHA20_POLY1305_SHA256,
-
 		tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
 		tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
 		tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
