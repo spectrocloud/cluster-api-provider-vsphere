@@ -250,7 +250,6 @@ func GetTLSOptionOverrideFuncs(options TLSOptions) ([]func(*tls.Config), error) 
 	}
 	tlsOptions = append(tlsOptions, func(cfg *tls.Config) {
 		cfg.MinVersion = tlsVersion
-		cfg.CipherSuites = GetDefaultTLSCipherSuits()
 		cfg.MaxVersion = flags.GetTlsMaxVersion()
 		if cfg.MaxVersion <= tls.VersionTLS12 {
 			cfg.CipherSuites = GetDefaultTLSCipherSuits()
