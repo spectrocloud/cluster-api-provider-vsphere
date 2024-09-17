@@ -252,6 +252,9 @@ func GetTLSOptionOverrideFuncs(options TLSOptions) ([]func(*tls.Config), error) 
 		cfg.MinVersion = tlsVersion
 		cfg.CipherSuites = GetDefaultTLSCipherSuits()
 		cfg.MaxVersion = flags.GetTlsMaxVersion()
+		if cfg.MaxVersion <= tls.VersionTLS12 {
+			cfg.CipherSuites = GetDefaultTLSCipherSuits()
+		}
 		cfg.InsecureSkipVerify = flags.InsecureSkipVerify(insecureSkipVerify)
 	})
 
