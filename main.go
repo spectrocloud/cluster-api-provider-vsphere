@@ -248,12 +248,7 @@ func GetTLSOptionOverrideFuncs() ([]func(*tls.Config), error) {
 		// Set minimum TLS version to TLS 1.2
 		cfg.MinVersion = tls.VersionTLS12
 		cfg.MaxVersion = flags.GetTlsMaxVersion()
-		if cfg.MaxVersion <= tls.VersionTLS12 {
-			cfg.CipherSuites = GetDefaultTLSCipherSuits()
-		} else {
-			// TLS 1.3 should use its own cipher suites automatically
-			cfg.CipherSuites = nil
-		}
+		cfg.CipherSuites = GetDefaultTLSCipherSuits()
 		cfg.InsecureSkipVerify = flags.InsecureSkipVerify(insecureSkipVerify)
 	})
 
