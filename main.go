@@ -168,13 +168,25 @@ func main() {
 
 	managerOpts.SyncPeriod = &syncPeriod
 
-	tlsOptionOverrides, err := GetTLSOptionOverrideFuncs()
-	if err != nil {
-		setupLog.Error(err, "unable to add TLS settings to the webhook server")
-		os.Exit(1)
+	tlsConfig := &tls.Config{
+		GetConfigForClient: func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
+			// Log the ClientHello info
+			fmt.Printf("Received TLS ClientHello, version: %x\n", hello.SupportedVersions)
+			return nil, nil
+		},
 	}
 
-	managerOpts.TLSOpts = tlsOptionOverrides
+	//tlsOptionOverrides, err := GetTLSOptionOverrideFuncs()
+	//if err != nil {
+	//	setupLog.Error(err, "unable to add TLS settings to the webhook server")
+	//	os.Exit(1)
+	//}
+
+	managerOpts.TLSOpts = []func(cfg *tls.Config){
+		func(cfg *tls.Config) {
+			*cfg = *tlsConfig // Apply your custom TLS config
+		},
+	}
 
 	// Create a function that adds all of the controllers and webhooks to the
 	// manager.
