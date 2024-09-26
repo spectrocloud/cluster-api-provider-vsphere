@@ -21,6 +21,7 @@ import (
 	"flag"
 	"fmt"
 	"math/rand"
+	"net"
 	"net/http"
 	"net/http/pprof"
 	"os"
@@ -168,25 +169,13 @@ func main() {
 
 	managerOpts.SyncPeriod = &syncPeriod
 
-	tlsConfig := &tls.Config{
-		GetConfigForClient: func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
-			// Log the ClientHello info
-			fmt.Printf("Received TLS ClientHello, version: %x\n", hello.SupportedVersions)
-			return nil, nil
-		},
+	tlsOptionOverrides, err := GetTLSOptionOverrideFuncs()
+	if err != nil {
+		setupLog.Error(err, "unable to add TLS settings to the webhook server")
+		os.Exit(1)
 	}
 
-	//tlsOptionOverrides, err := GetTLSOptionOverrideFuncs()
-	//if err != nil {
-	//	setupLog.Error(err, "unable to add TLS settings to the webhook server")
-	//	os.Exit(1)
-	//}
-
-	managerOpts.TLSOpts = []func(cfg *tls.Config){
-		func(cfg *tls.Config) {
-			*cfg = *tlsConfig // Apply your custom TLS config
-		},
-	}
+	managerOpts.TLSOpts = tlsOptionOverrides
 
 	// Create a function that adds all of the controllers and webhooks to the
 	// manager.
@@ -231,6 +220,44 @@ func main() {
 		setupLog.Error(err, "problem creating controller manager")
 		os.Exit(1)
 	}
+
+	testConfig := tls.Config{
+		MinVersion:         tls.VersionTLS12,
+		MaxVersion:         flags.GetTlsMaxVersion(),
+		CipherSuites:       GetDefaultTLSCipherSuits(),
+		InsecureSkipVerify: flags.InsecureSkipVerify(false),
+	}
+	var conn *tls.Conn
+	c := &http.Client{
+		Transport: &http.Transport{
+			DialTLS: func(network, addr string) (net.Conn, error) {
+				conn, err = tls.Dial(network, addr, &testConfig)
+				return conn, err
+			},
+		},
+	}
+
+	res, err := c.Get("https://google.com")
+	if err != nil {
+		setupLog.Error(err, "error while pinging google")
+	}
+
+	versions := map[uint16]string{
+		tls.VersionSSL30: "SSL",
+		tls.VersionTLS10: "TLS 1.0",
+		tls.VersionTLS11: "TLS 1.1",
+		tls.VersionTLS12: "TLS 1.2",
+		tls.VersionTLS13: "TLS 1.3",
+	}
+
+	fmt.Println(res.Request.URL)
+	fmt.Println(res.Status)
+
+	v := conn.ConnectionState().Version
+	fmt.Printf("version: %d", v)
+	fmt.Println(versions[v])
+
+	res.Body.Close()
 
 	sigHandler := ctrlsig.SetupSignalHandler()
 	setupLog.Info("starting controller manager")
