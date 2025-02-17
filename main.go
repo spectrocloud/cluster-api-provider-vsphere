@@ -337,8 +337,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	setupChecks(mgr)
-
 	setupLog.Info("Starting manager", "version", version.Get().String())
 	if err := mgr.Start(ctx); err != nil {
 		setupLog.Error(err, "Error starting manager")
@@ -381,6 +379,8 @@ func setupVAPIControllers(ctx context.Context, controllerCtx *capvcontext.Contro
 	if err := (&webhooks.VSphereFailureDomainWebhook{}).SetupWebhookWithManager(mgr); err != nil {
 		return err
 	}
+
+	setupChecks(mgr)
 
 	if err := controllers.AddClusterControllerToManager(ctx, controllerCtx, mgr, false, concurrency(vSphereClusterConcurrency)); err != nil {
 		return err
