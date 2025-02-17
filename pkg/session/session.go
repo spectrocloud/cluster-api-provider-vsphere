@@ -72,6 +72,7 @@ type Params struct {
 	userinfo   *url.Userinfo
 	thumbprint string
 	feature    Feature
+	caller     string
 }
 
 // NewParams returns an empty set of parameters with default features.
@@ -79,6 +80,12 @@ func NewParams() *Params {
 	return &Params{
 		feature: DefaultFeature(),
 	}
+}
+
+// Caller sets the caller name in the parameters.
+func (p *Params) Caller(name string) *Params {
+	p.caller = name
+	return p
 }
 
 // WithServer adds a server to parameters.
