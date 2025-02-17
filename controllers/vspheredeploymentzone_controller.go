@@ -273,7 +273,8 @@ func (r vsphereDeploymentZoneReconciler) getVCenterSession(ctx context.Context, 
 	params := session.NewParams().
 		WithServer(deploymentZoneCtx.VSphereDeploymentZone.Spec.Server).
 		WithDatacenter(datacenter).
-		WithUserInfo(r.ControllerManagerContext.Username, r.ControllerManagerContext.Password)
+		WithUserInfo(r.ControllerManagerContext.Username, r.ControllerManagerContext.Password).
+		Caller("vsphereDeploymentZoneReconciler")
 
 	clusterList := &infrav1.VSphereClusterList{}
 	if err := r.Client.List(ctx, clusterList); err != nil {

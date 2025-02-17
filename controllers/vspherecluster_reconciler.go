@@ -382,7 +382,8 @@ func (r *clusterReconciler) reconcileIdentitySecret(ctx context.Context, cluster
 func (r *clusterReconciler) reconcileVCenterConnectivity(ctx context.Context, clusterCtx *capvcontext.ClusterContext) (*session.Session, error) {
 	params := session.NewParams().
 		WithServer(clusterCtx.VSphereCluster.Spec.Server).
-		WithThumbprint(clusterCtx.VSphereCluster.Spec.Thumbprint)
+		WithThumbprint(clusterCtx.VSphereCluster.Spec.Thumbprint).
+		Caller("clusterReconciler")
 
 	if clusterCtx.VSphereCluster.Spec.IdentityRef.IsDefined() {
 		creds, err := identity.GetCredentials(ctx, r.Client, clusterCtx.VSphereCluster, r.ControllerManagerContext.Namespace)

@@ -657,7 +657,8 @@ func (r vmReconciler) retrieveVcenterSession(ctx context.Context, vsphereVM *inf
 		WithServer(vsphereVM.Spec.Server).
 		WithDatacenter(vsphereVM.Spec.Datacenter).
 		WithUserInfo(r.ControllerManagerContext.Username, r.ControllerManagerContext.Password).
-		WithThumbprint(vsphereVM.Spec.Thumbprint)
+		WithThumbprint(vsphereVM.Spec.Thumbprint).
+		Caller("vmReconciler")
 
 	cluster, err := clusterutilv1.GetClusterFromMetadata(ctx, r.Client, vsphereVM.ObjectMeta)
 	if err != nil {
