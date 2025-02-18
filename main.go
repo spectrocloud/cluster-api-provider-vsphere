@@ -200,7 +200,7 @@ func InitFlags(fs *pflag.FlagSet) {
 	fs.IntVar(&clusterCacheClientBurst, "clustercache-client-burst", 30,
 		"Maximum number of queries that should be allowed in one burst from the cluster cache clients to the Kubernetes API server of workload clusters.")
 
-	fs.IntVar(&webhookOpts.Port, "webhook-port", 9443,
+	fs.IntVar(&webhookOpts.Port, "webhook-port", 0,
 		"Webhook Server port.")
 
 	fs.StringVar(&webhookOpts.CertDir, "webhook-cert-dir", "/tmp/k8s-webhook-server/serving-certs/",
