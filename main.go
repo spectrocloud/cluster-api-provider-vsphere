@@ -200,7 +200,7 @@ func InitFlags(fs *pflag.FlagSet) {
 	fs.IntVar(&clusterCacheClientBurst, "clustercache-client-burst", 30,
 		"Maximum number of queries that should be allowed in one burst from the cluster cache clients to the Kubernetes API server of workload clusters.")
 
-	fs.IntVar(&webhookOpts.Port, "webhook-port", 9443,
+	fs.IntVar(&webhookOpts.Port, "webhook-port", 0,
 		"Webhook Server port.")
 
 	fs.StringVar(&webhookOpts.CertDir, "webhook-cert-dir", "/tmp/k8s-webhook-server/serving-certs/",
@@ -268,10 +268,6 @@ func main() {
 
 	// Create a function that adds all the controllers and webhooks to the manager.
 	addToManager := func(ctx context.Context, controllerCtx *capvcontext.ControllerManagerContext, mgr ctrlmgr.Manager) error {
-		clusterCache, err := setupClusterCache(ctx, mgr)
-		if err != nil {
-			return perrors.Wrapf(err, "unable to create remote cluster cache tracker")
-		}
 
 		govmomiGVR := infrav1.GroupVersion.WithResource(reflect.TypeOf(&infrav1.VSphereCluster{}).Elem().Name())
 		supervisorGVR := vmwarev1.GroupVersion.WithResource(reflect.TypeOf(&vmwarev1.VSphereCluster{}).Elem().Name())
@@ -300,7 +296,7 @@ func main() {
 		}
 
 		if isGovmomiCRDLoaded {
-			if err := setupVAPIControllers(ctx, controllerCtx, mgr, clusterCache); err != nil {
+			if err := setupVAPIControllers(ctx, controllerCtx, mgr); err != nil {
 				return fmt.Errorf("setupVAPIControllers: %w", err)
 			}
 		} else {
@@ -308,7 +304,7 @@ func main() {
 		}
 
 		if isSupervisorCRDLoaded {
-			if err := setupSupervisorControllers(ctx, controllerCtx, mgr, clusterCache); err != nil {
+			if err := setupSupervisorControllers(ctx, controllerCtx, mgr); err != nil {
 				return fmt.Errorf("setupSupervisorControllers: %w", err)
 			}
 		} else {
@@ -355,50 +351,63 @@ func main() {
 	defer session.Clear()
 }
 
-func setupVAPIControllers(ctx context.Context, controllerCtx *capvcontext.ControllerManagerContext, mgr ctrlmgr.Manager, clusterCache clustercache.ClusterCache) error {
-	if err := (&webhooks.VSphereClusterTemplateWebhook{}).SetupWebhookWithManager(mgr); err != nil {
-		return err
+func setupVAPIControllers(ctx context.Context, controllerCtx *capvcontext.ControllerManagerContext, mgr ctrlmgr.Manager) error {
+	if webhookOpts.Port != 0 {
+		if err := (&webhooks.VSphereClusterTemplateWebhook{}).SetupWebhookWithManager(mgr); err != nil {
+			return err
+		}
+
+		if err := (&webhooks.VSphereMachineWebhook{}).SetupWebhookWithManager(mgr); err != nil {
+			return err
+		}
+
+		if err := (&webhooks.VSphereMachineTemplateWebhook{}).SetupWebhookWithManager(mgr); err != nil {
+			return err
+		}
+
+		if err := (&webhooks.VSphereVMWebhook{}).SetupWebhookWithManager(mgr); err != nil {
+			return err
+		}
+
+		if err := (&webhooks.VSphereDeploymentZoneWebhook{}).SetupWebhookWithManager(mgr); err != nil {
+			return err
+		}
+
+		if err := (&webhooks.VSphereFailureDomainWebhook{}).SetupWebhookWithManager(mgr); err != nil {
+			return err
+		}
+		setupChecks(mgr)
+		
+	} else {
+		clusterCache, err := setupClusterCache(ctx, mgr)
+		if err != nil {
+			return perrors.Wrapf(err, "unable to create remote cluster cache tracker")
+		}
+		if err := controllers.AddClusterControllerToManager(ctx, controllerCtx, mgr, false, concurrency(vSphereClusterConcurrency)); err != nil {
+			return err
+		}
+		if err := controllers.AddMachineControllerToManager(ctx, controllerCtx, mgr, false, concurrency(vSphereMachineConcurrency)); err != nil {
+			return err
+		}
+		if err := controllers.AddVMControllerToManager(ctx, controllerCtx, mgr, clusterCache, concurrency(vSphereVMConcurrency)); err != nil {
+			return err
+		}
+		if err := controllers.AddVsphereClusterIdentityControllerToManager(ctx, controllerCtx, mgr, concurrency(vSphereClusterIdentityConcurrency)); err != nil {
+			return err
+		}
+		if err := controllers.AddVSphereDeploymentZoneControllerToManager(ctx, controllerCtx, mgr, concurrency(vSphereDeploymentZoneConcurrency)); err != nil {
+			return err
+		}
 	}
 
-	if err := (&webhooks.VSphereMachineWebhook{}).SetupWebhookWithManager(mgr); err != nil {
-		return err
-	}
-
-	if err := (&webhooks.VSphereMachineTemplateWebhook{}).SetupWebhookWithManager(mgr); err != nil {
-		return err
-	}
-
-	if err := (&webhooks.VSphereVMWebhook{}).SetupWebhookWithManager(mgr); err != nil {
-		return err
-	}
-
-	if err := (&webhooks.VSphereDeploymentZoneWebhook{}).SetupWebhookWithManager(mgr); err != nil {
-		return err
-	}
-
-	if err := (&webhooks.VSphereFailureDomainWebhook{}).SetupWebhookWithManager(mgr); err != nil {
-		return err
-	}
-
-	setupChecks(mgr)
-
-	if err := controllers.AddClusterControllerToManager(ctx, controllerCtx, mgr, false, concurrency(vSphereClusterConcurrency)); err != nil {
-		return err
-	}
-	if err := controllers.AddMachineControllerToManager(ctx, controllerCtx, mgr, false, concurrency(vSphereMachineConcurrency)); err != nil {
-		return err
-	}
-	if err := controllers.AddVMControllerToManager(ctx, controllerCtx, mgr, clusterCache, concurrency(vSphereVMConcurrency)); err != nil {
-		return err
-	}
-	if err := controllers.AddVsphereClusterIdentityControllerToManager(ctx, controllerCtx, mgr, concurrency(vSphereClusterIdentityConcurrency)); err != nil {
-		return err
-	}
-
-	return controllers.AddVSphereDeploymentZoneControllerToManager(ctx, controllerCtx, mgr, concurrency(vSphereDeploymentZoneConcurrency))
+	return nil
 }
 
-func setupSupervisorControllers(ctx context.Context, controllerCtx *capvcontext.ControllerManagerContext, mgr ctrlmgr.Manager, clusterCache clustercache.ClusterCache) error {
+func setupSupervisorControllers(ctx context.Context, controllerCtx *capvcontext.ControllerManagerContext, mgr ctrlmgr.Manager) error {
+	clusterCache, err := setupClusterCache(ctx, mgr)
+	if err != nil {
+		return perrors.Wrapf(err, "unable to create remote cluster cache tracker")
+	}
 	if err := (&vmwarewebhooks.VSphereMachineTemplateWebhook{}).SetupWebhookWithManager(mgr); err != nil {
 		return err
 	}
