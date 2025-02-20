@@ -20,13 +20,42 @@ spec:
     spec:
       containers:
       - args:
-        - --enable-leader-election
-        - --logtostderr
+        - --leader-elect
+        - --diagnostics-address=${CAPI_DIAGNOSTICS_ADDRESS:=:8443}
+        - --insecure-diagnostics=${CAPI_INSECURE_DIAGNOSTICS:=false}
         - --v=4
-        image: gcr.io/cluster-api-provider-vsphere/release/manager:latest
-        imagePullPolicy: IfNotPresent
+        - --feature-gates=NodeAntiAffinity=${EXP_NODE_ANTI_AFFINITY:=false},NamespaceScopedZones=${EXP_NAMESPACE_SCOPED_ZONES:=false}
+        env:
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_UID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.uid
+        image: gcr.io/k8s-staging-capi-vsphere/cluster-api-vsphere-controller:main
+        imagePullPolicy: Always
         name: manager
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          runAsGroup: 65532
+          runAsUser: 65532
+        terminationMessagePolicy: FallbackToLogsOnError
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       terminationGracePeriodSeconds: 10
       tolerations:
       - effect: NoSchedule
         key: node-role.kubernetes.io/master
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/control-plane
