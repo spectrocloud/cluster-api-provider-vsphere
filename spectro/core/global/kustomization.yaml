@@ -7,7 +7,7 @@ commonLabels:
 
 bases:
 - ../../../config/default/crd
-- ../../../config/webhook
+- ../../../config/govmomi/webhook
 - ../../../config/manager
 - ../../../config/certmanager
 
@@ -15,7 +15,7 @@ patchesStrategicMerge:
   - ../../../config/base/manager_image_patch.yaml
   - ../../../config/base/manager_pull_policy.yaml
   - ../../../config/base/manager_webhook_patch.yaml
-  - ../../../config/base/webhookcainjection_patch.yaml
+  - ../../../config/govmomi/webhook/webhookcainjection_patch.yaml
 
 vars:
   - name: CERTIFICATE_NAMESPACE # namespace of the certificate CR
