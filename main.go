@@ -203,15 +203,6 @@ func InitFlags(fs *pflag.FlagSet) {
 	fs.IntVar(&webhookOpts.Port, "webhook-port", 0,
 		"Webhook Server port.")
 
-	fs.StringVar(&webhookOpts.CertDir, "webhook-cert-dir", "/tmp/k8s-webhook-server/serving-certs/",
-		"Webhook cert dir.")
-
-	fs.StringVar(&webhookOpts.CertName, "webhook-cert-name", "tls.crt",
-		"Webhook cert name.")
-
-	fs.StringVar(&webhookOpts.KeyName, "webhook-key-name", "tls.key",
-		"Webhook key name.")
-
 	fs.StringVar(&managerOpts.HealthProbeBindAddress, "health-addr", ":9440",
 		"The address the health endpoint binds to.",
 	)
