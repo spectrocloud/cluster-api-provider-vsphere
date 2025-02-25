@@ -203,7 +203,7 @@ RELEASE_NOTES := $(abspath $(TOOLS_BIN_DIR)/$(RELEASE_NOTES_BIN)-$(RELEASE_NOTES
 RELEASE_NOTES_PKG := sigs.k8s.io/cluster-api/hack/tools/release/notes
 
 # Define Docker related variables. Releases should modify and double check these vars.
-DEV_REGISTRY ?= gcr.io/spectro-dev-public/release/cluster-api-provider-vsphere
+DEV_REGISTRY ?= gcr.io/spectro-dev-public/kunzhou/cluster-api-provider-vsphere
 DEV_CONTROLLER_IMG ?= $(DEV_REGISTRY)/cluster-api-vsphere-controller
 DEV_TAG ?= v1.12.0-spectro-${SPECTRO_VERSION}
 
@@ -1152,7 +1152,7 @@ $(RELEASE_NOTES): # Build release-notes.
 
 .PHONY: docker-build
 docker-build: ## Build the docker image for controller-manager
-	docker buildx build --load --platform linux/amd64,linux/arm64 ${BUILD_ARGS} --build-arg ARCH=$(ARCH) --output=type=docker \
+	docker buildx build --load --platform linux/${ARCH} ${BUILD_ARGS} --build-arg ARCH=$(ARCH) --output=type=docker \
 		--pull --build-arg ldflags="$(LDFLAGS)" \
 		-t $(DEV_CONTROLLER_IMG):$(DEV_TAG) .
 
@@ -1161,8 +1161,4 @@ docker-push-gcr:
 
 .PHONY: docker-push
 docker-push: ## Push the docker image
-	docker buildx inspect capv &>/dev/null || docker buildx create --name capv
-	docker buildx build --builder capv --platform linux/amd64,linux/arm64 --output=type=registry \
-		--pull --build-arg ldflags="$(LDFLAGS)" \
-		-t $(DEV_CONTROLLER_IMG):$(DEV_TAG) .
-	docker buildx rm capv
+	docker push $(CONTROLLER_IMG)-$(ARCH):$(TAG)

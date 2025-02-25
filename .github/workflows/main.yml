@@ -63,8 +63,8 @@ jobs:
         env:
           DEV_REGISTRY: ${{ env.LEGACY_REGISTRY }}
         run: |
-          make docker-build
-          make docker-push-gcr
+          make docker-build-all
+          make docker-push-all
       - 
         name: Build Image - FIPS Mode 
         env: 
