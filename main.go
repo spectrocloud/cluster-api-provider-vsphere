@@ -315,7 +315,7 @@ func main() {
 		os.Exit(1)
 	}
 	webhookOpts.TLSOpts = tlsOptions
-	managerOpts.WebhookServer = webhook.NewServer(webhookOpts)
+	// managerOpts.WebhookServer = webhook.NewServer(webhookOpts)
 	managerOpts.AddToManager = addToManager
 	managerOpts.Metrics = *metricsOptions
 
