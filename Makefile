@@ -1152,7 +1152,7 @@ $(RELEASE_NOTES): # Build release-notes.
 
 .PHONY: docker-build
 docker-build: ## Build the docker image for controller-manager
-	docker buildx build --load --platform linux/${ARCH} ${BUILD_ARGS} --build-arg ARCH=$(ARCH) --output=type=docker \
+	docker buildx build --load --platform linux/amd64,linux/arm64 ${BUILD_ARGS} --build-arg ARCH=$(ARCH) --output=type=docker \
 		--pull --build-arg ldflags="$(LDFLAGS)" \
 		-t $(DEV_CONTROLLER_IMG):$(DEV_TAG) .
 

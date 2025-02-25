@@ -70,7 +70,6 @@ jobs:
         env: 
           FIPS_ENABLE: yes
           DEV_REGISTRY: ${{ env.FIPS_REGISTRY }}
-          ALL_ARCH: amd64
         run: |
           make docker-build
           make docker-push-gcr
