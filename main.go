@@ -347,43 +347,45 @@ func main() {
 }
 
 func setupVAPIControllers(ctx context.Context, controllerCtx *capvcontext.ControllerManagerContext, mgr ctrlmgr.Manager, clusterCache clustercache.ClusterCache) error {
-	if err := (&webhooks.VSphereClusterTemplateWebhook{}).SetupWebhookWithManager(mgr); err != nil {
-		return err
-	}
+	if webhookOpts.Port != 0 {
+		if err := (&webhooks.VSphereClusterTemplateWebhook{}).SetupWebhookWithManager(mgr); err != nil {
+			return err
+		}
 
-	if err := (&webhooks.VSphereMachineWebhook{}).SetupWebhookWithManager(mgr); err != nil {
-		return err
-	}
+		if err := (&webhooks.VSphereMachineWebhook{}).SetupWebhookWithManager(mgr); err != nil {
+			return err
+		}
 
-	if err := (&webhooks.VSphereMachineTemplateWebhook{}).SetupWebhookWithManager(mgr); err != nil {
-		return err
-	}
+		if err := (&webhooks.VSphereMachineTemplateWebhook{}).SetupWebhookWithManager(mgr); err != nil {
+			return err
+		}
 
-	if err := (&webhooks.VSphereVMWebhook{}).SetupWebhookWithManager(mgr); err != nil {
-		return err
-	}
+		if err := (&webhooks.VSphereVMWebhook{}).SetupWebhookWithManager(mgr); err != nil {
+			return err
+		}
 
-	if err := (&webhooks.VSphereDeploymentZoneWebhook{}).SetupWebhookWithManager(mgr); err != nil {
-		return err
-	}
+		if err := (&webhooks.VSphereDeploymentZoneWebhook{}).SetupWebhookWithManager(mgr); err != nil {
+			return err
+		}
 
-	if err := (&webhooks.VSphereFailureDomainWebhook{}).SetupWebhookWithManager(mgr); err != nil {
-		return err
-	}
-
-	setupChecks(mgr)
-
-	if err := controllers.AddClusterControllerToManager(ctx, controllerCtx, mgr, false, concurrency(vSphereClusterConcurrency)); err != nil {
-		return err
-	}
-	if err := controllers.AddMachineControllerToManager(ctx, controllerCtx, mgr, false, concurrency(vSphereMachineConcurrency)); err != nil {
-		return err
-	}
-	if err := controllers.AddVMControllerToManager(ctx, controllerCtx, mgr, clusterCache, concurrency(vSphereVMConcurrency)); err != nil {
-		return err
-	}
-	if err := controllers.AddVsphereClusterIdentityControllerToManager(ctx, controllerCtx, mgr, concurrency(vSphereClusterIdentityConcurrency)); err != nil {
-		return err
+		if err := (&webhooks.VSphereFailureDomainWebhook{}).SetupWebhookWithManager(mgr); err != nil {
+			return err
+		}
+		setupChecks(mgr)
+		
+	} else {
+		if err := controllers.AddClusterControllerToManager(ctx, controllerCtx, mgr, false, concurrency(vSphereClusterConcurrency)); err != nil {
+			return err
+		}
+		if err := controllers.AddMachineControllerToManager(ctx, controllerCtx, mgr, false, concurrency(vSphereMachineConcurrency)); err != nil {
+			return err
+		}
+		if err := controllers.AddVMControllerToManager(ctx, controllerCtx, mgr, clusterCache, concurrency(vSphereVMConcurrency)); err != nil {
+			return err
+		}
+		if err := controllers.AddVsphereClusterIdentityControllerToManager(ctx, controllerCtx, mgr, concurrency(vSphereClusterIdentityConcurrency)); err != nil {
+			return err
+		}
 	}
 
 	return controllers.AddVSphereDeploymentZoneControllerToManager(ctx, controllerCtx, mgr, concurrency(vSphereDeploymentZoneConcurrency))
