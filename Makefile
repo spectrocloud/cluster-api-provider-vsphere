@@ -202,11 +202,6 @@ RELEASE_NOTES_BIN := release-notes
 RELEASE_NOTES := $(abspath $(TOOLS_BIN_DIR)/$(RELEASE_NOTES_BIN)-$(RELEASE_NOTES_VER))
 RELEASE_NOTES_PKG := sigs.k8s.io/cluster-api/hack/tools/release/notes
 
-# Define Docker related variables. Releases should modify and double check these vars.
-DEV_REGISTRY ?= gcr.io/spectro-dev-public/release/cluster-api-provider-vsphere
-DEV_CONTROLLER_IMG ?= $(DEV_REGISTRY)/cluster-api-vsphere-controller
-DEV_TAG ?= v1.12.0-spectro-${SPECTRO_VERSION}
-
 PROD_REGISTRY ?= registry.k8s.io/cluster-api-vsphere
 
 STAGING_REGISTRY ?= gcr.io/k8s-staging-capi-vsphere
