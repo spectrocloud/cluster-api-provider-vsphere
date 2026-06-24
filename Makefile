@@ -27,6 +27,10 @@ GO_VERSION ?= 1.26.4
 GO_DIRECTIVE_VERSION ?= 1.26.0
 GO_CONTAINER_IMAGE ?= docker.io/library/golang:$(GO_VERSION)
 
+# Ensure correct toolchain is used
+GOTOOLCHAIN = go$(GO_VERSION)
+export GOTOOLCHAIN
+
 # Use GOPROXY environment variable if set
 GOPROXY := $(shell go env GOPROXY)
 ifeq ($(GOPROXY),)
@@ -1152,3 +1156,7 @@ docker-push: ## Push the docker image
 		--pull --build-arg ldflags="$(LDFLAGS)" \
 		-t $(DEV_CONTROLLER_IMG):$(DEV_TAG) .
 	docker buildx rm capv
+
+.PHONY: go-version
+go-version: ## Print the go version we use to compile our binaries and images
+	@echo $(GO_VERSION)
