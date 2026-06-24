@@ -23,8 +23,8 @@ SHELL:=/usr/bin/env bash
 #
 # Go.
 #
-GO_VERSION ?= 1.22.10
-GO_DIRECTIVE_VERSION ?= 1.22.0
+GO_VERSION ?= 1.26.4
+GO_DIRECTIVE_VERSION ?= 1.26.4
 GO_CONTAINER_IMAGE ?= docker.io/library/golang:$(GO_VERSION)
 
 # Use GOPROXY environment variable if set
@@ -271,7 +271,7 @@ ifeq ($(FIPS_ENABLE),yes)
   RELEASE_LOC := release-fips
 endif
 
-BUILDER_GOLANG_VERSION ?= 1.23
+BUILDER_GOLANG_VERSION ?= 1.26.4
 BUILD_ARGS = --build-arg CRYPTO_LIB=${FIPS_ENABLE} --build-arg BUILDER_GOLANG_VERSION=${BUILDER_GOLANG_VERSION}
 
 SPECTRO_VERSION ?= 4.0.0-dev
