@@ -34,7 +34,7 @@ This script should be run at the root of a module.
   to the specified maximum version it can be. Versions provided
   here are of the form 1.x.y, without the 'go' prefix.
 Examples:
-  ${script} -g 1.22.0
+  ${script} -g 1.26.4
 EOF
   exit 1
 }
