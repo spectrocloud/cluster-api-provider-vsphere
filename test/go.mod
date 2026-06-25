@@ -1,6 +1,6 @@
 module sigs.k8s.io/cluster-api-provider-vsphere/test
 
-go 1.22.0
+go 1.26.4
 
 replace sigs.k8s.io/cluster-api => sigs.k8s.io/cluster-api v1.9.1
 
