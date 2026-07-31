@@ -1,1 +1,23 @@
 # ── INPUT (Gate-1, you edit) — Regression-Watch risk: <sha> <L|M|H> [note]. unset=REVIEW (blocks execute); High=sign-off. '#' = comment. See ../README.md ──
+#
+# Cycle: capv spectro-master (CAPI v1.9.1 / v1beta1) -> v1.16.1 (CAPI v1.13.1 / v1beta2)
+# reviewer-applied by spectro-capx-upgrade:capi-plan-reviewer — each risk below is backed by
+# an inspected diff against the v1.16.1 tree, not by the planner's assertion.
+
+# PICK-VERIFY. Adds Params.caller + Caller() setter + 3 controller call sites. `git grep caller`
+# on origin/spectro-master shows the field is WRITE-ONLY: it is not in the sessionKey
+# (pkg/session/session.go:130 keys on server#datacenter#username#thumbprint), never logged,
+# never read. Functionally inert in both trees -> no fork behavior can be lost.
+9c3c9344	L	write-only Params.caller field; not in sessionKey, never read — inert
+
+# Group-3 parity confirmations demanded by skip-commits.txt (were REGWATCH rows in the
+# 20260731-070552 plan; skip-listing them removed the rows, so the risk is recorded here instead).
+# d7e36a25 / 55e6158f: only non-dep hunk is Makefile CAPI_HACK_TOOLS_VER (CAPI v1.9.0-rc.1 / v1.9.1
+#   commit IDs). v1.16.1:Makefile:206 pins 16d0a6538ef0 = CAPI v1.13.1 -> strictly newer. Remaining
+#   hunks are go.mod/go.sum/test-e2e-config version strings owned by the target.
+# 08c3c2a9: the two code/config hunks are covered by the target as a strict superset —
+#   v1.16.1 internal/test/helpers/vcsim/model.go lists ubuntu-2404-kube-v1.32.0 THROUGH v1.36.0,
+#   and packaging/flavorgen/.../cpi.yaml pins cloud-provider-vsphere:v1.36.0 > v1.32.1.
+d7e36a25	L	CAPI_HACK_TOOLS_VER superseded by v1.16.1 -> CAPI v1.13.1 (Makefile:206)
+55e6158f	L	same as d7e36a25; target CAPI v1.13.1 > v1.9.1
+08c3c2a9	L	target model.go OVA list + cpi.yaml v1.36.0 are strict supersets of v1.32

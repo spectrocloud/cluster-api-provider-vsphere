@@ -24,3 +24,18 @@ d3584bb6   # CI Go 1.24.12 — superseded by 179c310f
 d7e36a25   # "Bump CAPI" — target is CAPI v1.13.1; REGWATCH parity confirm required
 55e6158f   # Bump sigs.k8s.io/cluster-api to v1.9.1 — superseded; REGWATCH parity confirm required
 08c3c2a9   # Bump Kubernetes to v1.32 + new OVAs — REGWATCH: confirm OVA/flavorgen parity in target
+# ^ parity for all three now CONFIRMED with evidence in regwatch-risk.tsv (risk=L).
+
+# ── Group 4: re-applying would REGRESS the target (added by the plan reviewer, Patch C).
+# These are not "already in T" — the target solved the same problem BETTER, so replaying the
+# fork's version is a net downgrade. Each is evidence-backed against the v1.16.1 tree.
+03def636   # reviewer-applied: upstream one-liner pinning `base-branch: release-1.12` in
+           # .github/workflows/pr-md-link-check.yaml. v1.16.1 uses `base-branch: ${{ github.base_ref }}`
+           # — branch-agnostic and strictly better. Re-applying re-hardcodes a stale release branch.
+8366ec8e   # reviewer-applied: "Added logger for power on failure" would REGRESS pkg/services/govmomi/service.go.
+           # (a) the added call is malformed logr — log.Error(err, "Failed to trigger power on operation for vm %s", ctx)
+           #     passes a printf verb as the msg and `ctx` as a lone key with no value (odd kv args).
+           # (b) it rewrites errors.Wrapf(..., virtualMachineCtx) -> (..., ctx), replacing the VM-identifying
+           #     String() with a context.Context — the error message gets WORSE.
+           # v1.16.1:service.go:400-410 already surfaces the failure via conditions.Set{Message: err.Error()}
+           # plus the wrapped return using virtualMachineCtx. Nothing is lost by skipping.

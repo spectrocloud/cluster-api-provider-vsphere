@@ -1,1 +1,31 @@
 # ── INPUT (Gate-1, you edit) — authoritative SHA->category map: <sha> <category> [decision]. '#' = comment. See ../README.md ──
+#
+# reviewer-applied by spectro-capx-upgrade:capi-plan-reviewer — stops two silent auto-PICKs.
+# Category F4 routes the commit to NEEDS-DECISION + a Regression-Watch row (engine
+# capi-commit-reconcile.sh: `elif [ "$cat" = "F4" ]`), which is the correct state for both:
+# a human must decide, and neither may be auto-picked.
+#
+# e0764bbd / e2bc5177 — the spectro/ MANIFEST tree (spectro/generated/core-global.yaml alone is
+# ~6k lines of CAPI-v1.9-era CRDs + webhook config, plus spectro/core/{base,global} kustomize
+# overlays and spectro/run.sh). The plan auto-PICKed both as "fork-only [confidence=heuristic]"
+# because conf GENERATED_PATHS says `spectro/base|spectro/global` while the real paths are
+# `spectro/core/base`, `spectro/core/global`, `spectro/generated` — so the generated-artifact
+# detector never fired. Cherry-picking v1beta1-era generated CRDs onto a v1beta2 base is a
+# guaranteed stale-manifest regression, and Spec Patch F says these artifacts are REGENERATED
+# (palette vendorcrd-sync), never cherry-picked. NOT marked REGEN here because palette's
+# cmd/vendorcrd-sync/providers.yaml currently has NO `vsphere` provider entry, so there is no
+# working regeneration path yet — a human must choose: add vsphere to providers.yaml and drop
+# spectro/ from the fork, or carry spectro/ forward and regenerate it in-fork.
+# The durable fix is to correct GENERATED_PATHS in conf/capi-upgrade.conf (outside reviewer scope).
+# NOTE: column 3 is the DECISION (engine ALLOWED_DEC), not a free-text note — keep notes in comments.
+e0764bbd	F4
+e2bc5177	F4
+#
+# 9767d35a — MANDATORY, not merely diverged. It flips the --webhook-port default 9443 -> 0 and
+# gates webhook-setup vs controller-setup on that port. palette cmd/vendorcrd-sync/providers.yaml
+# documents the deployment as depending on exactly this ("the fork's main.go split", global bucket
+# = webhook-only :9443, base bucket = --webhook-port=0 controller-only). conf MANDATORY_PATTERNS
+# ("exclusive webhook") does not match this subject, so it was classified F4? and buried among the
+# other NEEDS-DECISION rows. Pinned F4 so it can never become a silent auto-PICK if the conflict
+# clears on a re-plan; it needs a deliberate resolve, and it must not be dropped.
+9767d35a	F4
