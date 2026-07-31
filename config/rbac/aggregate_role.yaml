@@ -5,5 +5,5 @@ metadata:
 aggregationRule:
   clusterRoleSelectors:
     - matchLabels:
-        capv.infrastucture.cluster.x-k8s.io/aggregate-to-manager: "true"
+        capv.infrastructure.cluster.x-k8s.io/aggregate-to-manager: "true"
 rules: []
