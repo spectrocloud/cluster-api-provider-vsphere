@@ -1,1 +1,26 @@
 # ── INPUT (Gate-1, you edit) — SHAs to SKIP / drop. One SHA per line; '#' = comment. See ../README.md ──
+#
+# Cycle: capv spectro-master (CAPI v1.9.1) -> v1.16.1 (CAPI v1.13.1, contract v1beta2)
+# Proposed by the session agent at Gate-1; audited by spectro-capx-upgrade:capi-plan-reviewer.
+# Anything NOT listed here stays a genuine human decision.
+
+# ── Group 1: CVE / dependency remediation — handled by the CVE gate (Spec Patch G), not cherry-picked.
+# Re-remediating on the v1.16.1 base is correct: these pin dep versions against a CAPI v1.9.1 module
+# graph that no longer exists. govulncheck on the new branch re-derives the needed bumps.
+a7d3b47b   # fix golang.org/x/net CVE — conflicts go.mod/go.sum; gate G re-remediates
+56b4c125   # PCP-6139 Handle CAPV vulnerability — conflicts go.mod/go.sum; gate G re-remediates
+bcb615aa   # PCP-6891 go version + packages vuln fixes — 8-file conflict; gate G re-remediates
+
+# ── Group 2: Go/CI toolchain bumps superseded WITHIN the fork by 179c310f (Go builder 1.26.5).
+# NOTE: 179c310f itself is deliberately NOT skipped — the fork (go.mod `go 1.26.0`) is AHEAD of
+# target v1.16.1 (`go 1.25.0`), so dropping it would regress the builder. It stays NEEDS-DECISION
+# and must be ported onto the new base (conflicts .github/workflows/main.yml + Makefile).
+d3584bb6   # CI Go 1.24.12 — superseded by 179c310f
+2e4c67d3   # PCP-6027 builder Go 1.24.13 — superseded by 179c310f
+
+# ── Group 3: obsolete CAPI / Kubernetes version bumps — target already carries strictly newer.
+# Target v1.16.1 requires CAPI v1.13.1 (core baseline v1.13.3) and k8s well past v1.32.
+# All three are Regression-Watch entries: risk must be set in regwatch-risk.tsv, not assumed.
+d7e36a25   # "Bump CAPI" — target is CAPI v1.13.1; REGWATCH parity confirm required
+55e6158f   # Bump sigs.k8s.io/cluster-api to v1.9.1 — superseded; REGWATCH parity confirm required
+08c3c2a9   # Bump Kubernetes to v1.32 + new OVAs — REGWATCH: confirm OVA/flavorgen parity in target
