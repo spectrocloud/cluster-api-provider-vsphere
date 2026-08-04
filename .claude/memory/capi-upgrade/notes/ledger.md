@@ -149,9 +149,15 @@ Fixed this cycle:
 Still wrong — mitigated by ledger pins, but the durable fix belongs in conf:
 - **`GENERATED_PATHS`** says `spectro/base|spectro/global`; real paths are `spectro/core/base`,
   `spectro/core/global`, `spectro/generated`. Root cause of D-1's auto-PICK.
-- **`BUILD_VARS_TAG_KEY=TAG`** — this fork's `TAG ?= dev` carries no version; the version-bearing key
-  is `DEV_TAG ?= v1.12.0-spectro-${SPECTRO_VERSION}`. As configured, a v1.16.1 build is tagged
-  **v1.12.0**, and that tag is what Patch I pins into palette.
+- ✅ **`BUILD_VARS_TAG_KEY` FIXED** (`TAG` → `DEV_TAG`, 2026-07-31). `TAG ?= dev` carries no version
+  token and the anchored `^\s*TAG` cannot match `DEV_TAG`, so P3c was a **complete no-op** on this fork.
+  The version-bearing key is `DEV_TAG ?= v1.12.0-spectro-${SPECTRO_VERSION}` (Makefile:280), consumed at
+  :1143/:1146/:1153 by `make docker-build` / `make docker-push-gcr`, which the release workflow invokes
+  with `SPECTRO_VERSION` from its `release_version` input. So the `v1.12.0` provider version was
+  **hardcoded** and a v1.16.1 build would publish as `v1.12.0-spectro-<version>` — colliding with genuine
+  v1.12.0 images in the same registry path, and feeding that tag to palette's overlay pin and to CBT.
+  Verified empirically: with `DEV_TAG` the token rewrites to `v1.16.1` and the `-spectro-${SPECTRO_VERSION}`
+  suffix is preserved; with `TAG` the line is unchanged.
 - **`MANDATORY_PATTERNS`** is CAPG-derived: `Added Spectro Manifests` matches nothing in CAPV, and
   `exclusive webhook` does not match `9767d35a` "Controller and Webhook separation" — the single most
   palette-critical fork commit. Pinned `F4` as mitigation.
