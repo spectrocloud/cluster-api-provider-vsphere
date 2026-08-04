@@ -45,17 +45,32 @@ Rationale (as verified, not as originally argued):
 
 ### D-1 — Who owns the generated Spectro manifests? (blocks `e0764bbd`, `e2bc5177`)
 
-Both commits are pinned `F4` → NEEDS-DECISION in `../decisions/known-commits.tsv` so neither can be
-auto-picked. `spectro/generated/core-global.yaml` alone is ~6k lines of **CAPI-v1.9-era (v1beta1)**
-CRDs + webhook config. Replaying that onto a v1beta2 base is a stale-schema regression, and Spec
-Patch F says these are regenerated, never cherry-picked.
+**RESOLVED (human, 2026-07-31): the fork KEEPS `spectro/` and lands it as PICK-RESOLVE, then re-runs
+`spectro/run.sh` in that same resolution.** `e0764bbd` + `e2bc5177` are pinned `F4` in
+`../decisions/known-commits.tsv` and listed in `../decisions/resolve-commits.txt`.
 
-Two viable paths:
-1. **Palette-owned (Patch F).** Add a `vsphere` provider entry to `palette/cmd/vendorcrd-sync/providers.yaml`,
-   regenerate `palette/config/vendorcrd/vsphere` from v1beta2, and stop carrying `spectro/generated`
-   in the fork. Also resolves D-3.
-2. **Fork-owned.** Carry `spectro/` forward and regenerate in-fork against the v1beta2 base; palette's
-   `config/vendorcrd/vsphere` stays hand-maintained (D-3 then persists).
+**Why the fork keeps it — palette does not consume it.** `vendorcrd-sync` syncs
+`config/vendorcrd/<p>` from the **upstream release manifests**, fetched over `net/http` from a release
+URL ("No shelling, no git" — its README). All six URLs in `cmd/vendorcrd-sync/providers.yaml` point at
+`kubernetes-sigs`, and this fork publishes **no release assets**, so the URL cannot be re-pointed at it.
+The Spectro deltas reach palette as palette's **own kustomize overlay patches**
+(`config/vendorcrd/vsphere/global/kustomization.yaml` pins the image and sets `--webhook-port=9443`).
+So the fork's contribution to palette is its **code** (`9767d35a`) and its **image** — never these files.
+
+**Why NOT `REGENERATE` (corrected — this was initially got wrong).** `REGENERATE` cherry-picks nothing,
+and **`spectro/` does not exist in `v1.16.1`** (`git ls-tree -d v1.16.1 spectro/` → empty). Of the 10
+files in `e0764bbd` only **2** are generated (`spectro/generated/core-{base,global}.yaml`); the other
+**8** — `spectro/run.sh` plus the 7 `spectro/core/{base,global}/*.yaml` kustomize **inputs** — are
+hand-written fork source. So a `REGENERATE` decision would have left the branch with no `spectro/` dir
+at all, dropping the generator itself and making "regenerate via `run.sh`" impossible. It also would
+have emitted **no** Regression-Watch row (engine: `REGEN` at :267 vs `MIXED` at :270), hiding the loss.
+Additionally no Makefile target invokes `run.sh`, so the `REGENERATE` reason string "regenerate via
+make" would have been false and its regen-pending INCOMPLETE undischargeable.
+
+**Resolution contract:** land all 10 files, then re-run `cd spectro && ./run.sh` inside the same
+PICK-RESOLVE commit so the 2 generated outputs are v1beta2-correct rather than v1beta1-stale.
+Verified all five kustomization bases (`config/default/crd`, `config/govmomi/webhook`, `config/manager`,
+`config/certmanager`, `config/base`) still exist in `v1.16.1`, so `run.sh` works once the code compiles.
 
 ### D-2 — What Go version does the branch land on?
 
@@ -70,6 +85,17 @@ The fork deliberately runs **Go 1.26.5** (CVE-driven, feeds a FIPS build). Three
   and no `BUILDER_GOLANG_VERSION` at all.
 - The engine's P3c build-vars refresh (**execute-only**, so invisible in the plan) does
   `s/^(BUILDER_GOLANG_VERSION…=).*/\1${TGT_GO}/` → would force **1.25.0**.
+
+**RESOLVED (round 2): put `1.26.5` in `.github/workflows/main.yml`, not the Makefile — P3c cannot reach
+it there, and no conf change is needed.** P3c only rewrites `$BUILD_VARS_MAKEFILE`. A workflow `env:`
+value also *beats* a Makefile `?=` (make sets `$(origin VAR)` to `environment`, so `?=` no-ops), and the
+Makefile already forwards it via `BUILD_ARGS --build-arg BUILDER_GOLANG_VERSION`. The whole delta is
+exactly 4 lines — `GO_VERSION: 1.26.5` and `BUILDER_GOLANG_VERSION: 1.26.5` in each of the two Build
+Image steps (normal + FIPS).
+
+⚠️ **Note the round-2 delta ACTIVATED this hazard.** Previously the target Makefile had no
+`BUILDER_GOLANG_VERSION` at all (only `GO_VERSION ?= 1.25.9`), so P3c printed "keys absent" and no-op'd.
+Now that `4677a04e` lands and introduces the key, P3c **will** rewrite it to 1.25.0 after every commit.
 
 So with no action the branch lands on 1.23 or 1.25.0, silently reverting a security bump.
 To land 1.26.5 all three must happen: skip `179c310f` as unanchored, set `GO_VERSION` +
@@ -134,3 +160,57 @@ Still wrong — mitigated by ledger pins, but the durable fix belongs in conf:
   plan — a future-correctness fix (`api/` → `apis?/`, preserving the conversion/config-crd clauses).
 - **`F4_HOTSPOTS`** is empty. Per the SKILL this is safe-by-default (unknowns route to NEEDS-DECISION,
   and 10 did). Populating it would add precision, not safety.
+
+---
+
+## D-6 — Protocol U's IMAGE stage (Patch H) names a workflow this fork does not have
+
+The documented command is `gh workflow run spectro-release.yaml --ref spectro-v<target>-master`.
+**`spectro-release.yaml` has never existed in this fork** (`git log --all --diff-filter=A --
+"**/spectro-release.yaml"` → empty). The fork's release workflow is `.github/workflows/main.yml`
+(`name: Release`, `workflow_dispatch`) and it takes **required** inputs the documented command omits:
+
+| input | required | notes |
+|--|--|--|
+| `release_version` | yes | default `0.0.0` |
+| `rel_type` | yes | choice: `release` \| `rc` |
+
+Two consequences: (1) the IMAGE stage will fail as documented and needs the real invocation; (2) a
+repo-specific workflow filename is hardcoded in shared orchestration logic — it belongs in conf as a
+`RELEASE_WORKFLOW` key alongside `BUILD_VARS_*`. Note `main.yml` only exists on the upgrade branch
+*because* `4677a04e` lands it, so the IMAGE stage is downstream of that resolution succeeding.
+
+---
+
+## Regression Watch — two High risks require explicit human sign-off
+
+`--check-regwatch` blocks execute on any `High`. Both are force-picked commits whose *resolution
+quality* is the risk; neither failure mode is caught by Tier-1 or Tier-2.
+
+### `9767d35a` — High — palette's two-pod model
+
+`v1.16.1:main.go:236` still defaults `--webhook-port` to **9443**. Palette's
+`newns/kustomization.yaml` passes no `--webhook-port`, and `base/core-base.yaml` has **no**
+serving-cert mount (only `global/core-global.yaml:7343` does). So:
+
+- lose the `9443 → 0` default flip ⇒ every tenant `capv-controller-manager` **CrashLoops** (it tries
+  to serve webhooks without a cert).
+- lose the if/else gating ⇒ the webhook pod (`--leader-elect=false`) *also* runs every controller ⇒
+  **duplicate reconcile**.
+
+`main.go` went 496 → 752 lines between fork and target, webhook types were renamed, and
+`setupClusterCache`'s signature changed — so this is a genuine re-authoring, not a merge.
+**Sign-off asks:** read the resolved `main.go` and confirm both (a) the `--webhook-port` default is 0
+and (b) the webhook-vs-controller gating is intact.
+
+### `3670335d` — High — a product-semantics decision, not a merge
+
+The fork behavior is genuinely absent from the target (`v1.16.1:vspherevm_controller.go:239` returns
+unconditionally), **but the fork's own implementation is latently broken**: its NotFound branches only
+log, then fall through to `Get(Name: vsphereDeploymentZone.Spec.FailureDomain)` on a zero-valued
+struct — an empty name — which errors anyway. So the "upgrade-stuck" fix likely never worked on that
+path. Any faithful port must therefore *invent* semantics, and the coherent one (proceed with
+`vsphereFailureDomain == nil`) makes datacenter/datastore/folder/pool overrides silently skip ⇒
+**wrong VM placement instead of a loud error**. `*string → string` in v1beta2 as well.
+**Sign-off asks:** decide the intended behavior. "Tolerate a missing DeploymentZone" and "place the VM
+without its failure domain" are different product decisions, and the fork's code achieved neither.

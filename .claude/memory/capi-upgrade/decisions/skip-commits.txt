@@ -47,6 +47,15 @@ d7e36a25   # "Bump CAPI" — target is CAPI v1.13.1; REGWATCH parity confirm req
            # The 1.26.5 VALUE is not abandoned — it is set outright while resolving 4677a04e
            # (see resolve-commits.txt). D-2 also requires BUILD_VARS_GO_KEY be prevented from
            # stomping it back to the target's 1.25.0 during the execute-only build-vars refresh.
+           # ── ROUND-2 REVIEWER: the skip is CORRECT (target Makefile has GO_VERSION ?= 1.25.9 and
+           # no BUILDER_GOLANG_VERSION, so nothing to anchor on) but the D-2 handoff was incomplete.
+           # 179c310f's OTHER file is .github/workflows/main.yml, and `git diff
+           # 4677a04e:.github/workflows/main.yml origin/spectro-master:.github/workflows/main.yml`
+           # is EXACTLY the 4 lines GO_VERSION: 1.26.5 / BUILDER_GOLANG_VERSION: 1.26.5 in the two
+           # "Build Image" steps. 4677a04e's own main.yml carries no Go env keys at all, so a
+           # Makefile-only D-2 fix leaves the release workflow unpinned AND gets reverted by P3c.
+           # Fix recorded in resolve-commits.txt: put 1.26.5 in main.yml's env, which P3c never
+           # touches and which overrides Makefile `?=`. No conf change then required for D-2.
 55a6bb08   # "replace Info with Error" in pkg/services/govmomi/util.go. After the target's rewrite the
            # only remaining delta is the log LEVEL; the fork's added description-id key is already
            # covered — v1.16.1:util.go does log.WithValues(..., "taskDescriptionID", task.Info.DescriptionId).

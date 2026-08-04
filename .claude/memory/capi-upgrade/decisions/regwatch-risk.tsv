@@ -21,3 +21,90 @@
 d7e36a25	L	CAPI_HACK_TOOLS_VER superseded by v1.16.1 -> CAPI v1.13.1 (Makefile:206)
 55e6158f	L	same as d7e36a25; target CAPI v1.13.1 > v1.9.1
 08c3c2a9	L	target model.go OVA list + cpi.yaml v1.36.0 are strict supersets of v1.32
+
+# ══ ROUND 2 ══ the six PICK-RESOLVE rows from the Gate-1 force-pick set, plus the two spectro/
+# rows re-routed to PICK-RESOLVE (see known-commits.tsv D-1 audit). Judged on: what fork behavior
+# can be LOST when a 3-way merge lands this on v1.16.1, weighted by whether a wrong resolution
+# fails LOUDLY (build/CI error, caught at Tier-1) or SILENTLY (compiles, deploys, wrong at runtime).
+# Each is backed by reading the fork diff against the actual v1.16.1 tree.
+
+# ── HIGH ─────────────────────────────────────────────────────────────────────────────────────
+# 9767d35a "Controller and Webhook separation" — palette's deployment model IS this commit, and
+# both failure modes are invisible to Tier-1/Tier-2.
+#  * v1.16.1:main.go:236 STILL defaults --webhook-port to 9443. The flip to 0 exists only here.
+#  * palette config/vendorcrd/vsphere/newns/kustomization.yaml passes only
+#    `--leader-elect --namespace=$(NAMESPACE) --sync-period=2m` — NO --webhook-port — and
+#    base/core-base.yaml has NO /tmp/k8s-webhook-server/serving-certs mount (that mount appears only
+#    in global/core-global.yaml:7343). Lose the default flip and every per-tenant capv-controller-
+#    manager starts a webhook server with no serving cert -> CrashLoopBackOff in every tenant ns.
+#  * Lose the if/else GATING instead and the webhook pod (global overlay: --webhook-port=9443
+#    --leader-elect=false) ALSO runs AddCluster/Machine/VM/DeploymentZone controllers alongside every
+#    tenant controller, with leader election off -> duplicate reconciliation of the same VMs.
+#  * Not a mechanical merge: main.go went 496 -> 752 lines, webhook types were renamed
+#    (webhooks.VSphereClusterTemplateWebhook -> webhooks.VSphereClusterTemplate), setupClusterCache
+#    gained (secretCachingClient, isSupervisorCRDLoaded), setupSupervisorControllers gained
+#    secretCachingClient, and supervisor webhooks now take controllerCtx.NetworkProvider.
+# Needs a human to read the resolved main.go and confirm BOTH the default and the gating.
+9767d35a	H	palette 2-pod model; target still defaults 9443 and newns passes no --webhook-port + no cert mount -> lose flip = tenant CrashLoop, lose gating = double reconcile; main.go 496->752 diverged
+
+# 3670335d "Fixed vsphere cluster upgrade stuck 1.22->1.23" — cannot be merged, only re-implemented,
+# and the only coherent re-implementation changes semantics the fork never actually had.
+#  * Real fork behavior IS absent from the target: v1.16.1:controllers/vspherevm_controller.go:239
+#    returns errors.Wrapf unconditionally when the VSphereDeploymentZone Get fails.
+#  * But the fork's own version is latently broken (round-1 finding, re-confirmed): its NotFound
+#    branches only log and do NOT return, so control falls through to
+#    Get(Name: vsphereDeploymentZone.Spec.FailureDomain) on a zero-valued struct — an EMPTY name —
+#    which errors anyway. The fix as written likely never worked on that path.
+#  * So "port the intent" means inventing new code. The only coherent port (tolerate NotFound and
+#    proceed with vsphereFailureDomain == nil, which v1.16.1 already permits when no FD is set)
+#    makes a nil failure domain reachable while an FD IS assigned -> vm.Spec.Datacenter/Datastore/
+#    Folder/ResourcePool/Network overrides silently skipped -> VM placed on defaults instead of
+#    erroring loudly. Silent wrong-placement is worse than the wedge it replaces.
+#  * v1beta2 also changed Machine.Spec.FailureDomain *string -> string (target:234 `!= ""`), so the
+#    fork's `*failureDomain` deref cannot apply as-is.
+# Customer-facing bug fix (PCP-52) whose correct semantics are a product decision, not a merge.
+3670335d	H	fork impl latently broken (NotFound falls through to empty-name Get); any real port makes nil failure-domain reachable -> silent VM misplacement instead of loud error; *string->string in v1beta2
+
+# ── MEDIUM ───────────────────────────────────────────────────────────────────────────────────
+# 4677a04e "Spectro CICD integration" — 55-line Dockerfile rewrite + Makefile + new main.yml.
+# Mostly LOUD if mis-resolved (image build / release workflow fails), with two real concerns:
+#  * FIPS is the silent vector: CRYPTO_LIB / GOEXPERIMENT=boringcrypto / go-build-fips.sh /
+#    assert-fips.sh / scan-govulncheck.sh dropped -> a working but non-FIPS image published to the
+#    FIPS registry. Greppable in the resolved Dockerfile at Gate 2.
+#  * D-2 Go 1.26.5: now has a P3c-proof home (main.yml env) — see resolve-commits.txt. Without that,
+#    engine:323 rewrites the Makefile BUILDER_GOLANG_VERSION to the target's 1.25.0 at execute.
+# Med, not High: mitigated in-ledger this round and every remaining failure mode is loud or greppable.
+4677a04e	M	Dockerfile fully rewritten; FIPS chain (CRYPTO_LIB/boringcrypto/assert-fips/govulncheck) is the one silent-loss path; D-2 1.26.5 now pinned in main.yml env where P3c cannot reach it
+
+# e0764bbd — lands spectro/{run.sh, core/base, core/global, generated} as-is, so ~6k lines of
+# v1beta1-era CRD/webhook YAML in spectro/generated ride along STALE onto a v1beta2 base until
+# `cd spectro && ./run.sh` is re-run post-migration. Blast radius is fork-internal only: verified
+# palette does NOT consume this dir (no vsphere entry in cmd/vendorcrd-sync/providers.yaml; all 6
+# component URLs are kubernetes-sigs release assets; palette's own config/vendorcrd/vsphere overlay
+# is what pins the image and --webhook-port=9443). All 9 kustomize bases the overlays reference
+# exist in v1.16.1, so the re-run is mechanically possible once the code compiles.
+e0764bbd	M	lands stale v1beta1 spectro/generated onto a v1beta2 base until spectro/run.sh is re-run; fork-internal only (palette does not consume spectro/); regen must be the `resolve e0764bbd` commit
+
+# ── LOW ──────────────────────────────────────────────────────────────────────────────────────
+# d56fcd74 — v1.16.1:pkg/services/vimmachine.go:466-469 already `return nil, false` on ANY Get
+# error, exactly as the fork does. The entire fork delta is log LEVEL for the NotFound case
+# (log.Error -> log.V(4).Info). No functional behavior can be lost; conflict is only the
+# *failureDomainName -> failureDomainName deref (v1beta2) plus an apierrors import.
+d56fcd74	L	target vimmachine.go:466-469 already returns nil,false on any error; fork delta is log level only (Error -> V(4).Info)
+
+# 3753324e — deletes the 5 duplicate DEV_REGISTRY/DEV_CONTROLLER_IMG/DEV_TAG lines that 4677a04e
+# adds. If dropped, the earlier `?=` block wins (wrong image name cluster-api-provider-vsphere, and
+# RELEASE_LOC/FIPS bypassed) — but main.yml sets DEV_REGISTRY in env for BOTH build steps, which
+# overrides either Makefile `?=`, so CI is unaffected and only a bare local `make docker-build`
+# differs. May legitimately come out empty on the cumulative tree -> SKIP; that is correct.
+3753324e	L	pure dedupe of 4677a04e's duplicate DEV_* block; main.yml env DEV_REGISTRY overrides both Makefile ?= definitions, so CI unaffected either way
+
+# 01d8e154 — one line: builder base image us-docker.pkg.dev/palette-images/build-base-images ->
+# us-central1-docker.pkg.dev/palette-images-dev/hardened-images/builder. Nothing between it and
+# 4677a04e touches Dockerfile, so it still applies despite landing last in ancestry order. If lost,
+# the build pulls the old/retired builder path — a loud image-pull failure, and one grep to confirm.
+01d8e154	L	one-line builder registry path move; loss = loud image-pull failure, verifiable by one grep of the resolved Dockerfile
+
+# e2bc5177 — kustomize deprecation fixes to spectro/core/global/kustomization.yaml + run.sh. The two
+# generated files it also touches are subsumed by the post-migration run.sh re-run.
+e2bc5177	L	deprecation fixes to spectro run.sh + global kustomization; generated-file hunks subsumed by the run.sh re-run
