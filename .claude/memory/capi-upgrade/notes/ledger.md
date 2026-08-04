@@ -341,3 +341,20 @@ D-2 pins `GO_VERSION: 1.26.5` / `BUILDER_GOLANG_VERSION: 1.26.5` in the release 
 P3c cannot reach them). If the rename lands in the same resolution, that instruction targets
 **`spectro-release.yaml`**, not `main.yml`. The two Build Image steps (normal + FIPS) are unchanged by a
 rename — only the filename moves.
+
+#### ✅ D-6 sequencing: OPTION 2 chosen (human, 2026-07-31) — keep `main.yml` this cycle
+
+Binding for this upgrade:
+
+1. The `4677a04e` resolution lands the workflow as **`.github/workflows/main.yml`** — filename unchanged.
+   Do **not** rename it during this cycle.
+2. Stage H dispatches `main.yml`, which is already registered on the default branch:
+   `gh workflow run main.yml --ref spectro-v1.16.1-master -f release_version=<v> -f rel_type=rc`
+   (both inputs are required; `rel_type=rc` for a dev/pre-release image).
+3. D-2's Go pin stays in **`main.yml`** `env:` — `GO_VERSION: 1.26.5` and
+   `BUILDER_GOLANG_VERSION: 1.26.5` in both Build Image steps (normal + FIPS), where P3c cannot reach them.
+
+Deferred to a follow-up, **not** part of this upgrade: renaming to `spectro-release.yaml` for fleet
+consistency. Prerequisite for that follow-up — the rename must also land on the **default branch**
+(`master`), not just `spectro-master`, or `workflow_dispatch` will not register the new name. Track
+alongside the `RELEASE_WORKFLOW` conf key so shared Patch H logic stops assuming the filename.
