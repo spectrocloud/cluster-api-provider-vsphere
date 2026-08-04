@@ -163,7 +163,7 @@ Still wrong — mitigated by ledger pins, but the durable fix belongs in conf:
 
 ---
 
-## D-6 — Protocol U's IMAGE stage (Patch H) names a workflow this fork does not have
+## D-6 — RESOLVED: rename main.yml -> spectro-release.yaml (fleet consistency), with a sequencing caveat
 
 The documented command is `gh workflow run spectro-release.yaml --ref spectro-v<target>-master`.
 **`spectro-release.yaml` has never existed in this fork** (`git log --all --diff-filter=A --
@@ -274,3 +274,70 @@ error. Revisit only with evidence from a real stuck upgrade.
 
 Note `machine.Spec.FailureDomain` is `*string` in v1beta1 and `string` in v1beta2, so the
 `*failureDomain` dereferences change shape as part of the axis-2 migration regardless.
+
+### D-6 resolution (human, 2026-07-31)
+
+**Decision: rename `.github/workflows/main.yml` → `.github/workflows/spectro-release.yaml` as part of
+this upgrade**, bringing CAPV onto the fleet convention. vSphere is the only outlier — verified via the
+GitHub contents API:
+
+| fork | `spectro-release.yaml` |
+|--|--|
+| `spectrocloud-public/cluster-api` (core) | ✅ |
+| `spectrocloud/cluster-api-provider-gcp` | ✅ |
+| `spectrocloud-public/cluster-api-provider-aws` | ✅ |
+| `spectrocloud/cluster-api-provider-azure` | ✅ |
+| `spectrocloud-public/cluster-api-provider-vsphere` | ❌ (uses `main.yml`, `name: Release`) |
+| `spectrocloud/cluster-api-provider-vsphere` | ❌ |
+
+So Patch H's command is correct for the rest of the fleet; CAPV simply had not been converted.
+
+#### ⚠️ Sequencing caveat — the rename alone does NOT make stage H work this cycle
+
+`workflow_dispatch` only triggers **if the workflow file is on the repo's default branch**. Facts
+verified for this fork:
+
+- default branch is **`master`**, and it carries **exactly one** workflow: `.github/workflows/main.yml`
+  (added by `833674fd1 release.yaml`; `4677a04e` is **not** an ancestor of `master`). That single file on
+  `master` is why GitHub registers `Release / .github/workflows/main.yml` and nothing else.
+- `main.yml` is **absent from the `v1.16.1` tag**, so on the upgrade branch it exists only because
+  `4677a04e` lands it.
+
+Therefore, if the rename happens **only** on `spectro-v1.16.1-master`, stage H breaks *both* ways:
+
+| dispatch attempt | outcome |
+|--|--|
+| `gh workflow run spectro-release.yaml --ref spectro-v1.16.1-master` | fails — the name is not on the default branch, so it is not registered |
+| `gh workflow run main.yml --ref spectro-v1.16.1-master` | fails — registered, but the file no longer exists on that ref |
+
+Note the code PR merges into `spectro-master`, **not** into `master`, so merging it does not by itself
+put `spectro-release.yaml` on the default branch.
+
+Pick one before stage H runs:
+1. **Land the rename on `master` too** (a separate one-file PR) so the name registers, then stage H can
+   dispatch `spectro-release.yaml`. Matches the other forks, where the file *is* on the default branch.
+2. **Keep `main.yml` on the upgrade branch for this cycle**, have stage H dispatch `main.yml`, and do the
+   rename as a follow-up. Lowest risk to this upgrade.
+
+#### Required inputs either way
+
+The workflow takes inputs the documented Patch H command omits — both **required**:
+
+| input | notes |
+|--|--|
+| `release_version` | default `0.0.0` |
+| `rel_type` | choice: `release` \| `rc` |
+
+#### Durable fix
+
+The workflow filename is repo-specific but hardcoded in shared orchestration logic. It belongs in
+`conf/capi-upgrade.conf` as a `RELEASE_WORKFLOW` key alongside `BUILD_VARS_*`, so Patch H reads it per
+fork instead of assuming `spectro-release.yaml`. Not applied — listed with the other outstanding conf
+items below.
+
+#### Knock-on: D-2's Go-version location
+
+D-2 pins `GO_VERSION: 1.26.5` / `BUILDER_GOLANG_VERSION: 1.26.5` in the release workflow's `env:` (where
+P3c cannot reach them). If the rename lands in the same resolution, that instruction targets
+**`spectro-release.yaml`**, not `main.yml`. The two Build Image steps (normal + FIPS) are unchanged by a
+rename — only the filename moves.
