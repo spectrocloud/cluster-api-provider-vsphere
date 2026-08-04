@@ -45,7 +45,7 @@ d7e36a25	L	CAPI_HACK_TOOLS_VER superseded by v1.16.1 -> CAPI v1.13.1 (Makefile:2
 #    gained (secretCachingClient, isSupervisorCRDLoaded), setupSupervisorControllers gained
 #    secretCachingClient, and supervisor webhooks now take controllerCtx.NetworkProvider.
 # Needs a human to read the resolved main.go and confirm BOTH the default and the gating.
-9767d35a	H	palette 2-pod model; target still defaults 9443 and newns passes no --webhook-port + no cert mount -> lose flip = tenant CrashLoop, lose gating = double reconcile; main.go 496->752 diverged
+9767d35a	M	SIGNED OFF 2026-07-31 (human): preserve the commit's logic EXACTLY -- manual conflict resolution, no semantic change. H downgraded to M because the H was 'confirm the resolved main.go', which cannot be verified before the resolution exists; residual = implementation fidelity, a HARD Gate-2 check (see notes/ledger.md SO-1). Original evidence: target still defaults 9443, newns passes no --webhook-port and base has no cert mount -> lose flip = tenant CrashLoop, lose gating = double reconcile
 
 # 3670335d "Fixed vsphere cluster upgrade stuck 1.22->1.23" — cannot be merged, only re-implemented,
 # and the only coherent re-implementation changes semantics the fork never actually had.
@@ -63,7 +63,7 @@ d7e36a25	L	CAPI_HACK_TOOLS_VER superseded by v1.16.1 -> CAPI v1.13.1 (Makefile:2
 #  * v1beta2 also changed Machine.Spec.FailureDomain *string -> string (target:234 `!= ""`), so the
 #    fork's `*failureDomain` deref cannot apply as-is.
 # Customer-facing bug fix (PCP-52) whose correct semantics are a product decision, not a merge.
-3670335d	H	fork impl latently broken (NotFound falls through to empty-name Get); any real port makes nil failure-domain reachable -> silent VM misplacement instead of loud error; *string->string in v1beta2
+3670335d	M	SIGNED OFF 2026-07-31 (human): OPTION A -- tolerate a missing DeploymentZone for DELETION only; a non-deleting VM still errors. Semantic ambiguity that drove the H is now resolved, so M; residual = implementation fidelity, Gate-2 check (see notes/ledger.md SO-2). NB Option A intentionally DROPS the fork's second branch ('might be worker vm'), so a non-deleting VM with a missing zone still returns an error
 
 # ── MEDIUM ───────────────────────────────────────────────────────────────────────────────────
 # 4677a04e "Spectro CICD integration" — 55-line Dockerfile rewrite + Makefile + new main.yml.

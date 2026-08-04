@@ -214,3 +214,63 @@ path. Any faithful port must therefore *invent* semantics, and the coherent one 
 **wrong VM placement instead of a loud error**. `*string → string` in v1beta2 as well.
 **Sign-off asks:** decide the intended behavior. "Tolerate a missing DeploymentZone" and "place the VM
 without its failure domain" are different product decisions, and the fork's code achieved neither.
+
+---
+
+## Human sign-offs on the two High-risk resolutions (2026-07-31)
+
+Both risks are downgraded **H → M** in `../decisions/regwatch-risk.tsv`. The rationale is *not* that the
+risk shrank — it is that the H asked for something unverifiable before execute. Both original H's were
+"confirm the resolved code does X", and the resolved code does not exist until execute runs. The
+sign-offs below convert each into (a) a **binding resolution constraint** for the conflict-resolver and
+(b) a **hard Gate-2 check** on real code. Neither may be waived by the DOD waiver path.
+
+### SO-1 — `9767d35a` Controller/Webhook separation: preserve the logic exactly
+
+**Instruction:** keep the commit's logic **identical**. Resolve conflicts manually against v1.16.1's
+restructured `main.go` (496 → 752 lines, webhook types renamed, `setupClusterCache` signature changed).
+Re-author the placement; do **not** re-design the behavior.
+
+Resolution constraints — the resolved `main.go` MUST satisfy all three:
+1. `fs.IntVar(&webhookOpts.Port, "webhook-port", ...)` defaults to **`0`**, not 9443.
+2. **Every** webhook registration is inside `if webhookOpts.Port != 0 { … }` — all six
+   (`VSphereClusterTemplate`, `VSphereMachine`, `VSphereMachineTemplate`, `VSphereVM`,
+   `VSphereDeploymentZone`, `VSphereFailureDomain`) — **and `setupChecks(mgr)` with them.**
+3. clusterCache is enabled only when the webhook port **is** 0 (per the commit's own message,
+   "enabled clusterCache only when webhook port is 0").
+
+**Hard Gate-2 checks** (both, on the resolved diff — neither is reachable by Tier-1 or Tier-2, which
+never start two pods with palette's overlays):
+- `grep -n '"webhook-port"' main.go` → the default literal is `0`.
+- The webhook block and `setupChecks` are gated; the global pod (`--webhook-port=9443
+  --leader-elect=false`) must NOT reach controller setup, or it double-reconciles against the
+  leader-electing tenant pods.
+
+### SO-2 — `3670335d` upgrade-stuck fix: Option A
+
+**Decision: Option A — tolerate a missing `VSphereDeploymentZone` for DELETION only.** Port the
+*intent*, not the diff; the fork's own implementation never worked (see D-1 note below).
+
+Required behavior:
+
+| condition | behavior |
+|--|--|
+| `Get(VSphereDeploymentZone)` → NotFound **and** `!vsphereVM.GetDeletionTimestamp().IsZero()` | proceed; **skip the `VSphereFailureDomain` lookup** and leave `vsphereFailureDomain` nil |
+| `Get(VSphereDeploymentZone)` → NotFound **and** the VM is **not** being deleted | **return the error** (creation still fails loudly) |
+| any other error | return the error |
+
+Why the skip is mandatory: the fork's version tolerated NotFound but then fell through to
+`Get(Name: vsphereDeploymentZone.Spec.FailureDomain)` on a zero-valued struct — an **empty name** —
+which errors anyway. So the tolerance branch never reached a successful reconcile and the fix was a
+no-op on that path. Tolerating the first Get without also skipping the second reproduces that bug.
+
+⚠️ **Accepted trade-off, recorded deliberately.** Option A **drops the fork's second branch**
+(`else if apierrors.IsNotFound(err)` → `"ignoring vspheredeploymentzone not found, might be worker
+vm"`). A non-deleting VM with a missing zone therefore still errors. If the original stuck upgrade
+involved non-deleting worker VMs, Option A may not fully cover it — flagged to the approver, who chose
+A over Option B ("place the VM without its failure domain"), because B skips
+datacenter/datastore/folder/resource-pool overrides **silently**, risking wrong VM placement with no
+error. Revisit only with evidence from a real stuck upgrade.
+
+Note `machine.Spec.FailureDomain` is `*string` in v1beta1 and `string` in v1beta2, so the
+`*failureDomain` dereferences change shape as part of the axis-2 migration regardless.
