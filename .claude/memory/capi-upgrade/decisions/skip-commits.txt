@@ -39,3 +39,16 @@ d7e36a25   # "Bump CAPI" — target is CAPI v1.13.1; REGWATCH parity confirm req
            #     String() with a context.Context — the error message gets WORSE.
            # v1.16.1:service.go:400-410 already surfaces the failure via conditions.Set{Message: err.Error()}
            # plus the wrapped return using virtualMachineCtx. Nothing is lost by skipping.
+
+# ── Group 5: Gate-1 human decisions (2026-07-31).
+179c310f   # Go builder 1.26.4 -> 1.26.5. CANNOT APPLY: its hunks anchor on the literal 1.26.4 that
+           # bcb615aa wrote, and bcb615aa is skipped above (Group 1). The target Makefile has
+           # GO_VERSION ?= 1.25.9 and no BUILDER_GOLANG_VERSION at all, so there is nothing to edit.
+           # The 1.26.5 VALUE is not abandoned — it is set outright while resolving 4677a04e
+           # (see resolve-commits.txt). D-2 also requires BUILD_VARS_GO_KEY be prevented from
+           # stomping it back to the target's 1.25.0 during the execute-only build-vars refresh.
+55a6bb08   # "replace Info with Error" in pkg/services/govmomi/util.go. After the target's rewrite the
+           # only remaining delta is the log LEVEL; the fork's added description-id key is already
+           # covered — v1.16.1:util.go does log.WithValues(..., "taskDescriptionID", task.Info.DescriptionId).
+           # Skipped as an observability-parity no-op. REVISIT if Error-level-on-task-failure is
+           # deliberate Palette alerting policy rather than incidental.

@@ -1,1 +1,34 @@
 # ── INPUT (Gate-1, you edit) — SHAs to force-pick as PICK-RESOLVE (3-way-merged at execute). One per line; '#' = comment. See ../README.md ──
+#
+# ── Gate-1 force-PICK set (PICK-RESOLVE): each conflicts, each must land. The conflict-resolver
+# does a 3-way merge at execute (fork intent vs v1.16.1 target vs upstream evolution); anything it
+# cannot resolve safely is left with markers + NEEDS-HUMAN rather than guessed.
+#
+# Cluster 2 — build/CI. ONE coupled unit, rooted in a file the target does not have at all
+# (.github/workflows/main.yml is CREATED by 4677a04e, +90 lines). Resolve in THIS order; resolving
+# out of order cascades conflicts.
+4677a04e   # MANDATORY (cat=M). Spectro CICD: creates main.yml, rewrites Dockerfile, adds
+           # BUILDER_GOLANG_VERSION + DEV_* to Makefile. Anchor of the whole build cluster.
+           # D-2: its resolution MUST set GO_VERSION and BUILDER_GOLANG_VERSION to 1.26.5 outright
+           # (it introduces them at 1.23), because 179c310f can no longer apply — see skip-commits.
+01d8e154   # Dockerfile builder-image path move. Must land WITH 4677a04e or the Dockerfile points
+           # at the old registry (us-docker.pkg.dev/palette-images/build-base-images ->
+           # us-central1-docker.pkg.dev/palette-images-dev/hardened-images/builder).
+3753324e   # Removes the DEV_REGISTRY/DEV_CONTROLLER_IMG/DEV_TAG block duplicated by 4677a04e.
+           # Moot unless 4677a04e lands; resolve AFTER it.
+9767d35a   # MANDATORY. Controller/Webhook separation: flips --webhook-port default 9443 -> 0 and
+           # gates webhook-setup vs controller-setup on it. palette's config/vendorcrd/vsphere/
+           # global/kustomization.yaml sets --webhook-port=9443 and base/newns runs the controller
+           # with port 0 — palette's deployment model IS this commit. Dropping it breaks palette.
+#
+# Cluster 3 — controller behavior genuinely absent from the target.
+d56fcd74   # Ignore deploymentZone workerPool NotFound. v1.16.1:vimmachine.go:467 still logs Error
+           # unconditionally. Conflicts only because the signature changed *failureDomainName ->
+           # failureDomainName (string). Return path is `return nil, false` either way, so the
+           # functional delta is log-noise; needs an apierrors import.
+3670335d   # Upgrade-stuck 1.22->1.23 fix. Real fork behavior: v1.16.1:240 still returns an error
+           # unconditionally. PORT THE INTENT, NOT THE DIFF — the fork's own version is buggy: after
+           # tolerating NotFound it falls through to Get(Name: vsphereDeploymentZone.Spec.FailureDomain)
+           # with an EMPTY name, which errors out anyway, so the fix likely never worked on that path.
+           # Its Makefile hunk is superseded by 3753324e and its main.go setupChecks hunk by 9767d35a
+           # — take only the controllers/vspherevm_controller.go intent.
