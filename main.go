@@ -233,7 +233,13 @@ func InitFlags(fs *pflag.FlagSet) {
 	fs.IntVar(&clusterCacheClientBurst, "clustercache-client-burst", 30,
 		"Maximum number of queries that should be allowed in one burst from the cluster cache clients to the Kubernetes API server of workload clusters.")
 
-	fs.IntVar(&webhookOpts.Port, "webhook-port", 9443,
+	// NOTE(spectro): the default is 0, NOT the upstream 9443. Palette runs this image as two
+	// separate Deployments and this default is the switch between them: the tenant
+	// capv-controller-manager pods run with no --webhook-port (so, 0) and get controllers only,
+	// while the single global pod is started with --webhook-port=9443 --leader-elect=false and
+	// gets webhooks only. A 9443 default would make every tenant pod try to serve webhooks
+	// without a serving cert and CrashLoop. See setupVAPIControllers below.
+	fs.IntVar(&webhookOpts.Port, "webhook-port", 0,
 		"Webhook Server port.")
 
 	fs.StringVar(&webhookOpts.CertDir, "webhook-cert-dir", "/tmp/k8s-webhook-server/serving-certs/",
@@ -481,9 +487,16 @@ func main() {
 			return perrors.Wrapf(err, "unable to create secret caching client")
 		}
 
-		clusterCache, err := setupClusterCache(ctx, mgr, secretCachingClient, isSupervisorCRDLoaded)
-		if err != nil {
-			return perrors.Wrapf(err, "unable to create remote cluster cache tracker")
+		// NOTE(spectro): only the pod that actually runs controllers needs a remote cluster cache.
+		// In the govmomi path that is the tenant pod (--webhook-port == 0); the global webhook pod
+		// registers webhooks only, so building the cache there would be dead weight against every
+		// workload cluster. The supervisor path is not split into two pods and always needs it.
+		var clusterCache clustercache.ClusterCache
+		if isSupervisorCRDLoaded || (isGovmomiCRDLoaded && webhookOpts.Port == 0) {
+			clusterCache, err = setupClusterCache(ctx, mgr, secretCachingClient, isSupervisorCRDLoaded)
+			if err != nil {
+				return perrors.Wrapf(err, "unable to create remote cluster cache tracker")
+			}
 		}
 
 		if isGovmomiCRDLoaded {
@@ -562,7 +575,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	setupChecks(mgr)
+	// NOTE(spectro): setupChecks is deliberately NOT called here. Its readyz/healthz probes are
+	// wired to the webhook server's StartedChecker, which never becomes ready in a pod that does
+	// not serve webhooks. It is registered from setupVAPIControllers instead, inside the
+	// `webhookOpts.Port != 0` branch, so only the global webhook pod gets it.
 
 	setupLog.Info("Starting manager", "version", version.Get().String())
 	if err := mgr.Start(ctx); err != nil {
@@ -582,29 +598,45 @@ func main() {
 	defer session.Clear()
 }
 
+// setupVAPIControllers wires up the govmomi path.
+//
+// NOTE(spectro): this is the controller/webhook separation palette depends on. The two halves are
+// mutually exclusive and selected by --webhook-port:
+//
+//	--webhook-port != 0 (the single global pod, started with --leader-elect=false):
+//	    webhooks + health/ready checks ONLY. It must not reach controller setup, or it would
+//	    double-reconcile against the leader-electing tenant pods.
+//	--webhook-port == 0 (the tenant capv-controller-manager pods, the default):
+//	    controllers ONLY, plus the remote cluster cache they need.
 func setupVAPIControllers(ctx context.Context, controllerCtx *capvcontext.ControllerManagerContext, mgr ctrlmgr.Manager, clusterCache clustercache.ClusterCache) error {
-	if err := (&webhooks.VSphereClusterTemplate{}).SetupWebhookWithManager(mgr); err != nil {
-		return err
-	}
+	if webhookOpts.Port != 0 {
+		if err := (&webhooks.VSphereClusterTemplate{}).SetupWebhookWithManager(mgr); err != nil {
+			return err
+		}
 
-	if err := (&webhooks.VSphereMachine{}).SetupWebhookWithManager(mgr); err != nil {
-		return err
-	}
+		if err := (&webhooks.VSphereMachine{}).SetupWebhookWithManager(mgr); err != nil {
+			return err
+		}
 
-	if err := (&webhooks.VSphereMachineTemplate{}).SetupWebhookWithManager(mgr); err != nil {
-		return err
-	}
+		if err := (&webhooks.VSphereMachineTemplate{}).SetupWebhookWithManager(mgr); err != nil {
+			return err
+		}
 
-	if err := (&webhooks.VSphereVM{}).SetupWebhookWithManager(mgr); err != nil {
-		return err
-	}
+		if err := (&webhooks.VSphereVM{}).SetupWebhookWithManager(mgr); err != nil {
+			return err
+		}
 
-	if err := (&webhooks.VSphereDeploymentZone{}).SetupWebhookWithManager(mgr); err != nil {
-		return err
-	}
+		if err := (&webhooks.VSphereDeploymentZone{}).SetupWebhookWithManager(mgr); err != nil {
+			return err
+		}
 
-	if err := (&webhooks.VSphereFailureDomain{}).SetupWebhookWithManager(mgr); err != nil {
-		return err
+		if err := (&webhooks.VSphereFailureDomain{}).SetupWebhookWithManager(mgr); err != nil {
+			return err
+		}
+
+		setupChecks(mgr)
+
+		return nil
 	}
 
 	if err := controllers.AddClusterControllerToManager(ctx, controllerCtx, mgr, false, concurrency(vSphereClusterConcurrency)); err != nil {
