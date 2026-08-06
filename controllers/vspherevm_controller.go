@@ -236,13 +236,22 @@ func (r vmReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.R
 	var vsphereFailureDomain *infrav1.VSphereFailureDomain
 	if failureDomain != "" {
 		vsphereDeploymentZone := &infrav1.VSphereDeploymentZone{}
+		// NOTE(spectro): a VSphereDeploymentZone that has already been removed must not wedge the
+		// deletion of a VSphereVM that still references it (this used to strand cluster upgrades).
+		// Tolerate NotFound *only* while the VSphereVM is being deleted, and in that case skip the
+		// VSphereFailureDomain lookup entirely — vsphereFailureDomain stays nil. Looking it up
+		// anyway would query an empty name and fail, which is the bug this guard replaces.
+		// A missing zone on a VSphereVM that is *not* being deleted is still a hard error.
 		if err := r.Client.Get(ctx, apitypes.NamespacedName{Name: failureDomain}, vsphereDeploymentZone); err != nil {
-			return reconcile.Result{}, errors.Wrapf(err, "failed to get VSphereDeploymentZone %s", failureDomain)
-		}
-
-		vsphereFailureDomain = &infrav1.VSphereFailureDomain{}
-		if err := r.Client.Get(ctx, apitypes.NamespacedName{Name: vsphereDeploymentZone.Spec.FailureDomain}, vsphereFailureDomain); err != nil {
-			return reconcile.Result{}, errors.Wrapf(err, "failed to get VSphereFailureDomain %s", vsphereDeploymentZone.Spec.FailureDomain)
+			if !apierrors.IsNotFound(err) || vsphereVM.GetDeletionTimestamp().IsZero() {
+				return reconcile.Result{}, errors.Wrapf(err, "failed to get VSphereDeploymentZone %s", failureDomain)
+			}
+			log.Info("VSphereDeploymentZone not found and VSphereVM is being deleted, continuing without a VSphereFailureDomain", "VSphereDeploymentZone", failureDomain)
+		} else {
+			vsphereFailureDomain = &infrav1.VSphereFailureDomain{}
+			if err := r.Client.Get(ctx, apitypes.NamespacedName{Name: vsphereDeploymentZone.Spec.FailureDomain}, vsphereFailureDomain); err != nil {
+				return reconcile.Result{}, errors.Wrapf(err, "failed to get VSphereFailureDomain %s", vsphereDeploymentZone.Spec.FailureDomain)
+			}
 		}
 	}
 
