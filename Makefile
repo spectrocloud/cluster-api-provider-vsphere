@@ -271,11 +271,14 @@ OPENVPN_IMG_TAG ?= $(shell git describe --always --dirty)
 # It is set by Prow GIT_TAG, a git-based tag of the form vYYYYMMDD-hash, e.g., v20210120-v0.3.10-308-gc61521971
 
 TAG ?= dev
-ARCH ?= $(shell go env GOARCH)
-ALL_ARCH = amd64 arm arm64 ppc64le s390x
+ARCH ?= amd64
+ALL_ARCH = amd64 arm64
 
 # Allow overriding the imagePullPolicy
 PULL_POLICY ?= Always
+
+# Fips Flags
+FIPS_ENABLE ?= ""
 
 # Hosts running SELinux need :z added to volume mounts
 SELINUX_ENABLED := $(shell cat /sys/fs/selinux/enforce 2> /dev/null || echo 0)
@@ -283,6 +286,24 @@ SELINUX_ENABLED := $(shell cat /sys/fs/selinux/enforce 2> /dev/null || echo 0)
 ifeq ($(SELINUX_ENABLED),1)
   DOCKER_VOL_OPTS?=:z
 endif
+
+# Release docker variables
+RELEASE_REGISTRY := gcr.io/cluster-api-provider-vsphere/release
+RELEASE_CONTROLLER_IMG := $(RELEASE_REGISTRY)/$(IMAGE_NAME)
+
+# Development Docker variables
+RELEASE_LOC := release
+ifeq ($(FIPS_ENABLE),yes)
+  RELEASE_LOC := release-fips
+endif
+
+BUILDER_GOLANG_VERSION ?= 1.26.5
+BUILD_ARGS = --build-arg CRYPTO_LIB=${FIPS_ENABLE} --build-arg BUILDER_GOLANG_VERSION=${BUILDER_GOLANG_VERSION}
+
+SPECTRO_VERSION ?= 4.0.0-dev
+DEV_REGISTRY ?= gcr.io/spectro-dev-public/${RELEASE_LOC}/cluster-api-vsphere
+DEV_CONTROLLER_IMG ?= $(DEV_REGISTRY)/cluster-api-vsphere-controller
+DEV_TAG ?= v1.16.1-spectro-${SPECTRO_VERSION}
 
 # Additional CAPV vars (everything else is ~ kept in sync with core CAPI)
 # Allow overriding manifest generation destination directory
@@ -624,15 +645,6 @@ docker-build-%:
 	$(MAKE) ARCH=$* docker-build
 
 DOCKER_BUILD_MODIFY_MANIFESTS ?= true
-
-.PHONY: docker-build
-docker-build: docker-pull-prerequisites ## Build the docker image for vsphere controller manager
-## reads Dockerfile from stdin to avoid an incorrectly cached Dockerfile (https://github.com/moby/buildkit/issues/1368)
-	cat ./Dockerfile | DOCKER_BUILDKIT=1 docker build --build-arg builder_image=$(GO_CONTAINER_IMAGE) --build-arg goproxy=$(GOPROXY) --build-arg ARCH=$(ARCH) --build-arg gcflags="$(GCFLAGS)" --build-arg ldflags="$(LDFLAGS)" . -t $(CONTROLLER_IMG)-$(ARCH):$(TAG) --file -
-	@if [ "${DOCKER_BUILD_MODIFY_MANIFESTS}" = "true" ]; then \
-  		$(MAKE) set-manifest-image MANIFEST_IMG=$(CONTROLLER_IMG)-$(ARCH) MANIFEST_TAG=$(TAG) TARGET_RESOURCE="./config/base/manager_image_patch.yaml"; \
-		$(MAKE) set-manifest-pull-policy TARGET_RESOURCE="./config/base/manager_pull_policy.yaml"; \
-    fi
 
 .PHONY: docker-build-vcsim
 docker-build-vcsim: docker-pull-prerequisites ## Build the docker image for vcsim controller manager
@@ -1205,3 +1217,20 @@ $(RELEASE_NOTES): # Build release-notes.
 
 go-version: ## Print the go version we use to compile our binaries and images
 	@echo $(GO_VERSION)
+
+.PHONY: docker-build
+docker-build: ## Build the docker image for controller-manager
+	docker buildx build --load --platform linux/${ARCH} ${BUILD_ARGS} --build-arg ARCH=$(ARCH) --output=type=docker \
+		--pull --build-arg ldflags="$(LDFLAGS)" \
+		-t $(DEV_CONTROLLER_IMG):$(DEV_TAG) .
+
+docker-push-gcr:
+	docker push $(DEV_CONTROLLER_IMG):$(DEV_TAG)
+
+.PHONY: docker-push
+docker-push: ## Push the docker image
+	docker buildx inspect capv &>/dev/null || docker buildx create --name capv
+	docker buildx build --builder capv --platform linux/amd64,linux/arm64 --output=type=registry \
+		--pull --build-arg ldflags="$(LDFLAGS)" \
+		-t $(DEV_CONTROLLER_IMG):$(DEV_TAG) .
+	docker buildx rm capv
