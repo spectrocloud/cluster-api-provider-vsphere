@@ -1,1 +1,76 @@
 # ── INPUT (Gate-1, you edit) — authoritative SHA->category map: <sha> <category> [decision]. '#' = comment. See ../README.md ──
+#
+# reviewer-applied by spectro-capx-upgrade:capi-plan-reviewer — stops two silent auto-PICKs.
+# Category F4 routes the commit to NEEDS-DECISION + a Regression-Watch row (engine
+# capi-commit-reconcile.sh: `elif [ "$cat" = "F4" ]`), which is the correct state for both:
+# a human must decide, and neither may be auto-picked.
+#
+# e0764bbd / e2bc5177 — the spectro/ MANIFEST tree. Round-1 pinned both F4 here; round-2's D-1
+# re-pinned them lower down in this file. Those duplicate rows are REMOVED (round-2 reviewer):
+# the engine's CATMAP load is a plain last-wins assignment (capi-commit-reconcile.sh:141, no
+# duplicate detection), so two rows for one SHA make the decision depend on LINE ORDER — inserting
+# a block above would silently flip these back to NEEDS-DECISION. One row per SHA only.
+# The live pin for both is the D-1 block below.
+#
+# STANDING CONF DEFECT (not fixable from the ledgers — needs conf/capi-upgrade.conf):
+# GENERATED_PATHS is `config/|spectro/base|spectro/global|zz_generated` but the real fork paths are
+# `spectro/core/base`, `spectro/core/global`, `spectro/generated`. Nothing in e0764bbd matches, so
+# the generated-artifact detector never fires and, absent a pin here, BOTH commits auto-PICK as
+# "fork-only [confidence=heuristic]". The pins below are the only thing preventing that.
+# NOTE: column 3 is the DECISION (engine ALLOWED_DEC), not a free-text note — keep notes in comments.
+#
+# 9767d35a — MANDATORY, not merely diverged. It flips the --webhook-port default 9443 -> 0 and
+# gates webhook-setup vs controller-setup on that port. palette cmd/vendorcrd-sync/providers.yaml
+# documents the deployment as depending on exactly this ("the fork's main.go split", global bucket
+# = webhook-only :9443, base bucket = --webhook-port=0 controller-only). conf MANDATORY_PATTERNS
+# ("exclusive webhook") does not match this subject, so it was classified F4? and buried among the
+# other NEEDS-DECISION rows. Pinned F4 so it can never become a silent auto-PICK if the conflict
+# clears on a re-plan; it needs a deliberate resolve, and it must not be dropped.
+9767d35a	F4
+#
+# ── D-1 RESOLVED (human, 2026-07-31): the fork KEEPS its spectro/ overlay and REGENERATES it.
+# Review finding that settled it: palette's vendorcrd-sync does NOT consume the fork's spectro/ dir.
+# Its README is explicit ("upstream CAPI provider release manifests"; "Fetch: net/http (the release
+# URL)"; "No shelling, no git"), and all 6 URLs in cmd/vendorcrd-sync/providers.yaml point at
+# kubernetes-sigs — not at the spectro fork. The fork also publishes NO release assets, so the URL
+# cannot be re-pointed at it either. The Spectro deltas reach palette as palette's OWN kustomize
+# overlay patches (config/vendorcrd/vsphere/global/kustomization.yaml pins the image and sets
+# --webhook-port=9443), which is why the fork's CODE (9767d35a) matters and its manifests do not.
+#
+# So spectro/generated/*.yaml is kustomize OUTPUT over the fork's config/{default/crd,govmomi/webhook,
+# manager,certmanager} — stale by definition once the CRDs move to v1beta2. Regenerate with
+# spectro/run.sh after the axis-2 code migration; do NOT cherry-pick the v1beta1-era output.
+# Verified: all five kustomization bases still exist in v1.16.1, so run.sh works once code compiles.
+#
+# ── ROUND-2 REVIEWER AUDIT of D-1: the REASONING above is CONFIRMED, the DECISION was not.
+# Confirmed by inspection: palette cmd/vendorcrd-sync/providers.yaml has entries for capi/aws/azure/
+# apache-cloudstack only — NO vsphere entry at all, and all 6 component URLs are kubernetes-sigs
+# release assets. palette config/vendorcrd/vsphere/{global,base,newns} is hand-maintained, and
+# global/kustomization.yaml is what pins the image and sets --webhook-port=9443. So the fork's
+# spectro/generated is indeed NOT palette's input, and "keep spectro/, regenerate in-fork" (ledger.md
+# D-1 path 2) is the right call. Also verified: all 9 paths the two overlays reference (config/manager,
+# config/default/crd{,/kustomizeconfig.yaml}, config/govmomi/webhook{,/webhookcainjection_patch.yaml},
+# config/certmanager, config/base/manager_{image_patch,pull_policy,webhook_patch}.yaml) exist in v1.16.1.
+#
+# But decision REGENERATE cannot deliver it, on two counts:
+#  1. e0764bbd touches 10 files and only 2 (spectro/generated/core-{base,global}.yaml) are generated.
+#     The other 8 — spectro/run.sh plus the 7 spectro/core/{base,global}/*.yaml kustomize INPUTS —
+#     are hand-written fork source. REGENERATE cherry-picks nothing, and spectro/ does not exist in
+#     v1.16.1, so the branch would carry NO spectro/ dir at all: the generator itself is dropped and
+#     "regenerate with spectro/run.sh" becomes impossible. The engine's own P3a rule
+#     (capi-commit-reconcile.sh:204-209) classifies exactly this file shape as MIXED, never REGEN.
+#  2. SKILL.md:65 defines REGENERATE as "produced via `make generate/manifests`". No Makefile target
+#     invokes spectro/run.sh (fork Makefile mentions spectro only via SPECTRO_VERSION/DEV_*), so the
+#     2 regen-pending INCOMPLETE items these create can never be discharged by the documented step.
+# Additionally REGENERATE emits no Regression-Watch row (engine:267-268 vs MIXED at :270), so the
+# loss of 8 fork files would be invisible in the plan.
+#
+# reviewer-applied: re-pinned F4 + listed in resolve-commits.txt -> PICK-RESOLVE. Both apply cleanly
+# (e0764bbd is pure add of a dir absent from the target), so the overlays + run.sh land, each gets a
+# Regression-Watch row, and NEEDS-DECISION stays 0. The stale v1beta1 spectro/generated/*.yaml that
+# rides along MUST be regenerated by `cd spectro && ./run.sh` after the axis-2 migration — tracked as
+# the `resolve <sha>` commit the engine's finalize step looks for (engine:155-156).
+# F4 (not M) is deliberate: it is the fail-safe category — if these ever drop out of
+# resolve-commits.txt they become NEEDS-DECISION (engine:279), never a silent auto-PICK.
+e0764bbd	F4
+e2bc5177	F4

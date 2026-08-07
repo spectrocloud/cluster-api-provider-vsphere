@@ -1,1 +1,63 @@
 # ── INPUT (Gate-1, you edit) — SHAs to SKIP / drop. One SHA per line; '#' = comment. See ../README.md ──
+#
+# Cycle: capv spectro-master (CAPI v1.9.1) -> v1.16.1 (CAPI v1.13.1, contract v1beta2)
+# Proposed by the session agent at Gate-1; audited by spectro-capx-upgrade:capi-plan-reviewer.
+# Anything NOT listed here stays a genuine human decision.
+
+# ── Group 1: CVE / dependency remediation — handled by the CVE gate (Spec Patch G), not cherry-picked.
+# Re-remediating on the v1.16.1 base is correct: these pin dep versions against a CAPI v1.9.1 module
+# graph that no longer exists. govulncheck on the new branch re-derives the needed bumps.
+a7d3b47b   # fix golang.org/x/net CVE — conflicts go.mod/go.sum; gate G re-remediates
+56b4c125   # PCP-6139 Handle CAPV vulnerability — conflicts go.mod/go.sum; gate G re-remediates
+bcb615aa   # PCP-6891 go version + packages vuln fixes — 8-file conflict; gate G re-remediates
+
+# ── Group 2: Go/CI toolchain bumps superseded WITHIN the fork by 179c310f (Go builder 1.26.5).
+# NOTE: 179c310f itself is deliberately NOT skipped — the fork (go.mod `go 1.26.0`) is AHEAD of
+# target v1.16.1 (`go 1.25.0`), so dropping it would regress the builder. It stays NEEDS-DECISION
+# and must be ported onto the new base (conflicts .github/workflows/main.yml + Makefile).
+d3584bb6   # CI Go 1.24.12 — superseded by 179c310f
+2e4c67d3   # PCP-6027 builder Go 1.24.13 — superseded by 179c310f
+
+# ── Group 3: obsolete CAPI / Kubernetes version bumps — target already carries strictly newer.
+# Target v1.16.1 requires CAPI v1.13.1 (core baseline v1.13.3) and k8s well past v1.32.
+# All three are Regression-Watch entries: risk must be set in regwatch-risk.tsv, not assumed.
+d7e36a25   # "Bump CAPI" — target is CAPI v1.13.1; REGWATCH parity confirm required
+55e6158f   # Bump sigs.k8s.io/cluster-api to v1.9.1 — superseded; REGWATCH parity confirm required
+08c3c2a9   # Bump Kubernetes to v1.32 + new OVAs — REGWATCH: confirm OVA/flavorgen parity in target
+# ^ parity for all three now CONFIRMED with evidence in regwatch-risk.tsv (risk=L).
+
+# ── Group 4: re-applying would REGRESS the target (added by the plan reviewer, Patch C).
+# These are not "already in T" — the target solved the same problem BETTER, so replaying the
+# fork's version is a net downgrade. Each is evidence-backed against the v1.16.1 tree.
+03def636   # reviewer-applied: upstream one-liner pinning `base-branch: release-1.12` in
+           # .github/workflows/pr-md-link-check.yaml. v1.16.1 uses `base-branch: ${{ github.base_ref }}`
+           # — branch-agnostic and strictly better. Re-applying re-hardcodes a stale release branch.
+8366ec8e   # reviewer-applied: "Added logger for power on failure" would REGRESS pkg/services/govmomi/service.go.
+           # (a) the added call is malformed logr — log.Error(err, "Failed to trigger power on operation for vm %s", ctx)
+           #     passes a printf verb as the msg and `ctx` as a lone key with no value (odd kv args).
+           # (b) it rewrites errors.Wrapf(..., virtualMachineCtx) -> (..., ctx), replacing the VM-identifying
+           #     String() with a context.Context — the error message gets WORSE.
+           # v1.16.1:service.go:400-410 already surfaces the failure via conditions.Set{Message: err.Error()}
+           # plus the wrapped return using virtualMachineCtx. Nothing is lost by skipping.
+
+# ── Group 5: Gate-1 human decisions (2026-07-31).
+179c310f   # Go builder 1.26.4 -> 1.26.5. CANNOT APPLY: its hunks anchor on the literal 1.26.4 that
+           # bcb615aa wrote, and bcb615aa is skipped above (Group 1). The target Makefile has
+           # GO_VERSION ?= 1.25.9 and no BUILDER_GOLANG_VERSION at all, so there is nothing to edit.
+           # The 1.26.5 VALUE is not abandoned — it is set outright while resolving 4677a04e
+           # (see resolve-commits.txt). D-2 also requires BUILD_VARS_GO_KEY be prevented from
+           # stomping it back to the target's 1.25.0 during the execute-only build-vars refresh.
+           # ── ROUND-2 REVIEWER: the skip is CORRECT (target Makefile has GO_VERSION ?= 1.25.9 and
+           # no BUILDER_GOLANG_VERSION, so nothing to anchor on) but the D-2 handoff was incomplete.
+           # 179c310f's OTHER file is .github/workflows/main.yml, and `git diff
+           # 4677a04e:.github/workflows/main.yml origin/spectro-master:.github/workflows/main.yml`
+           # is EXACTLY the 4 lines GO_VERSION: 1.26.5 / BUILDER_GOLANG_VERSION: 1.26.5 in the two
+           # "Build Image" steps. 4677a04e's own main.yml carries no Go env keys at all, so a
+           # Makefile-only D-2 fix leaves the release workflow unpinned AND gets reverted by P3c.
+           # Fix recorded in resolve-commits.txt: put 1.26.5 in main.yml's env, which P3c never
+           # touches and which overrides Makefile `?=`. No conf change then required for D-2.
+55a6bb08   # "replace Info with Error" in pkg/services/govmomi/util.go. After the target's rewrite the
+           # only remaining delta is the log LEVEL; the fork's added description-id key is already
+           # covered — v1.16.1:util.go does log.WithValues(..., "taskDescriptionID", task.Info.DescriptionId).
+           # Skipped as an observability-parity no-op. REVISIT if Error-level-on-task-failure is
+           # deliberate Palette alerting policy rather than incidental.

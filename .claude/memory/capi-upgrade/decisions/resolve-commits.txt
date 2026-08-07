@@ -1,1 +1,84 @@
 # ── INPUT (Gate-1, you edit) — SHAs to force-pick as PICK-RESOLVE (3-way-merged at execute). One per line; '#' = comment. See ../README.md ──
+#
+# ── Gate-1 force-PICK set (PICK-RESOLVE): each conflicts, each must land. The conflict-resolver
+# does a 3-way merge at execute (fork intent vs v1.16.1 target vs upstream evolution); anything it
+# cannot resolve safely is left with markers + NEEDS-HUMAN rather than guessed.
+#
+# Cluster 2 — build/CI. ONE coupled unit, rooted in a file the target does not have at all
+# (.github/workflows/main.yml is CREATED by 4677a04e, +90 lines).
+#
+# ── ROUND-2 REVIEWER NOTE on ordering: this file is a SET, not a sequence. The engine tests
+# membership only (is_resolve(), capi-commit-reconcile.sh:225-227); the replay order is
+# `git rev-list --reverse S ^T` (engine:198), i.e. ancestry. The ACTUAL order is therefore
+# 3670335d -> d56fcd74 -> 4677a04e -> 9767d35a -> 3753324e -> 01d8e154, NOT the order written here.
+# Verified harmless for this set: 9767d35a is main.go-only and 3753324e is Makefile-only, so moving
+# 01d8e154 (Dockerfile-only) last still lands it on 4677a04e's Dockerfile. Do not add a commit to
+# this file expecting the listed order to be honored.
+#
+# ── ROUND-2 REVIEWER NOTE, Makefile anchor chain (3670335d -> 4677a04e -> 3753324e): 3670335d runs
+# FIRST and its Makefile hunk is what introduces `REGISTRY ?= gcr.io/spectro-dev-public/release/
+# cluster-api-provider-vsphere` + DEV_CONTROLLER_IMG + DEV_TAG. 4677a04e's Makefile hunk REWRITES
+# exactly those lines. Dropping 3670335d's Makefile hunk (as instructed below) therefore removes the
+# anchor for 4677a04e's first Makefile hunk. Intended end state: keep the TARGET's
+# `REGISTRY ?= gcr.io/$(shell gcloud config get-value project)` untouched, take only 4677a04e's
+# "Development Docker variables" block, and let 3753324e's deletion be a no-op (the engine will then
+# report it "empty on cumulative tree" -> SKIP, which is correct, not a failure).
+4677a04e   # MANDATORY (cat=M). Spectro CICD: creates main.yml, rewrites Dockerfile, adds
+           # BUILDER_GOLANG_VERSION + DEV_* to Makefile. Anchor of the whole build cluster.
+           # D-2: its resolution MUST set GO_VERSION and BUILDER_GOLANG_VERSION to 1.26.5 outright
+           # (it introduces them at 1.23), because 179c310f can no longer apply — see skip-commits.
+           #
+           # ── ROUND-2 REVIEWER, D-2 made actionable. `git diff 4677a04e:.github/workflows/main.yml
+           # origin/spectro-master:.github/workflows/main.yml` is EXACTLY 4 lines: GO_VERSION: 1.26.5
+           # and BUILDER_GOLANG_VERSION: 1.26.5 in each of the two "Build Image" steps (normal +
+           # FIPS). Nothing else in main.yml drifted in 3 years. So:
+           #  (a) The resolution MUST re-add those 4 env lines to main.yml. 4677a04e's own main.yml
+           #      has NO Go env keys at all (they were added later by d3584bb6, now skipped), so a
+           #      Makefile-only D-2 fix leaves the release workflow with no Go pin.
+           #  (b) main.yml's env is the ONLY P3c-proof home for 1.26.5. The engine's execute-only
+           #      build-vars refresh (engine:318-327) rewrites the Makefile's BUILDER_GOLANG_VERSION
+           #      to the TARGET Go (1.25.0) because conf BUILD_VARS_GO_KEY is still set — and it runs
+           #      AFTER every commit, so it will silently undo a Makefile-only fix. A workflow `env:`
+           #      value beats Makefile `?=` (make: $(origin VAR)=environment, so ?= no-ops), and the
+           #      Makefile already forwards it via BUILD_ARGS --build-arg BUILDER_GOLANG_VERSION.
+           #      This closes D-2 without needing the conf change that has not happened.
+           #  (c) Also verify the FIPS path survives the Dockerfile merge: ARG CRYPTO_LIB,
+           #      GOEXPERIMENT=${CRYPTO_LIB:+boringcrypto}, go-build-fips.sh, assert-static.sh,
+           #      assert-fips.sh, scan-govulncheck.sh. Losing these still builds a WORKING but
+           #      non-FIPS binary — the one silent-loss vector in this commit.
+01d8e154   # Dockerfile builder-image path move. Must land WITH 4677a04e or the Dockerfile points
+           # at the old registry (us-docker.pkg.dev/palette-images/build-base-images ->
+           # us-central1-docker.pkg.dev/palette-images-dev/hardened-images/builder).
+3753324e   # Removes the DEV_REGISTRY/DEV_CONTROLLER_IMG/DEV_TAG block duplicated by 4677a04e.
+           # Moot unless 4677a04e lands; resolve AFTER it.
+9767d35a   # MANDATORY. Controller/Webhook separation: flips --webhook-port default 9443 -> 0 and
+           # gates webhook-setup vs controller-setup on it. palette's config/vendorcrd/vsphere/
+           # global/kustomization.yaml sets --webhook-port=9443 and base/newns runs the controller
+           # with port 0 — palette's deployment model IS this commit. Dropping it breaks palette.
+#
+# Cluster 3 — controller behavior genuinely absent from the target.
+d56fcd74   # Ignore deploymentZone workerPool NotFound. v1.16.1:vimmachine.go:467 still logs Error
+           # unconditionally. Conflicts only because the signature changed *failureDomainName ->
+           # failureDomainName (string). Return path is `return nil, false` either way, so the
+           # functional delta is log-noise; needs an apierrors import.
+3670335d   # Upgrade-stuck 1.22->1.23 fix. Real fork behavior: v1.16.1:240 still returns an error
+           # unconditionally. PORT THE INTENT, NOT THE DIFF — the fork's own version is buggy: after
+           # tolerating NotFound it falls through to Get(Name: vsphereDeploymentZone.Spec.FailureDomain)
+           # with an EMPTY name, which errors out anyway, so the fix likely never worked on that path.
+           # Its Makefile hunk is superseded by 3753324e and its main.go setupChecks hunk by 9767d35a
+           # — take only the controllers/vspherevm_controller.go intent.
+           # ── ROUND-2 REVIEWER: see the "Makefile anchor chain" note at the top — dropping this
+           # commit's Makefile hunk is correct but it de-anchors 4677a04e's first Makefile hunk.
+#
+# ── Cluster 4 — the spectro/ manifest overlay (ROUND-2 reviewer-applied; see known-commits.tsv D-1).
+# Re-routed from REGENERATE because REGENERATE cherry-picks nothing and spectro/ does not exist in
+# v1.16.1 — it would drop spectro/run.sh and the 7 kustomize INPUT files along with the 2 generated
+# ones, making the "regenerate in-fork" decision unexecutable. Both apply cleanly.
+e0764bbd   # Creates spectro/{run.sh, core/base/*, core/global/*, generated/*}. Resolution = land the
+           # dir as-is, then REGENERATE the output: `cd spectro && ./run.sh` (needs kustomize) AFTER
+           # the axis-2 v1beta1->v1beta2 code migration, and commit as `resolve e0764bbd` so the
+           # engine's finalize step (engine:155-156) can discharge it. The ~6k lines of v1beta1-era
+           # spectro/generated/*.yaml that ride along are STALE until that re-run — do not ship them.
+e2bc5177   # Deprecation fixes to spectro/core/global/kustomization.yaml + run.sh (and the generated
+           # output). Applies on top of e0764bbd. Subsumed by the run.sh re-run above for the two
+           # generated files; the run.sh + kustomization.yaml deltas are the part that must land.
