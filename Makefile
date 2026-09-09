@@ -243,7 +243,7 @@ OPENVPN_IMG_TAG ?= $(shell git describe --always --dirty)
 
 # It is set by Prow GIT_TAG, a git-based tag of the form vYYYYMMDD-hash, e.g., v20210120-v0.3.10-308-gc61521971
 
-TAG ?= dev
+TAG ?= v1.12.0-spectro-${SPECTRO_VERSION}
 ARCH ?= amd64
 ALL_ARCH = amd64 arm64
 
@@ -277,7 +277,7 @@ BUILD_ARGS = --build-arg CRYPTO_LIB=${FIPS_ENABLE} --build-arg BUILDER_GOLANG_VE
 SPECTRO_VERSION ?= 4.0.0-dev
 DEV_REGISTRY ?= gcr.io/spectro-dev-public/${RELEASE_LOC}/cluster-api-vsphere
 DEV_CONTROLLER_IMG ?= $(DEV_REGISTRY)/cluster-api-vsphere-controller
-DEV_TAG ?= v1.12.0-spectro-${SPECTRO_VERSION}
+DEV_TAG ?= $(TAG)
 
 # Set build time variables including git version details
 LDFLAGS := $(shell hack/version.sh)
